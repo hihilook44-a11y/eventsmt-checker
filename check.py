@@ -9,6 +9,7 @@ import os
 import sys
 import tempfile
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
@@ -27,8 +28,23 @@ def fetch_page(handle, cursor=None):
     request = urllib.request.Request(url + '?' + urllib.parse.urlencode(params), headers={
         'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json'
     })
-    with urllib.request.urlopen(request, timeout=25) as response:
-        return json.load(response)
+    # The public proxy occasionally fails transiently. Retry one time on transport,
+    # server, or truncated-JSON errors; never advance the dedup state on final failure.
+    for attempt in range(2):
+        try:
+            with urllib.request.urlopen(request, timeout=25) as response:
+                return json.load(response)
+        except urllib.error.HTTPError as exc:
+            if attempt == 0 and 500 <= exc.code < 600:
+                time.sleep(1)
+                continue
+            raise
+        except (urllib.error.URLError, TimeoutError, ConnectionError,
+                json.JSONDecodeError):
+            if attempt == 0:
+                time.sleep(1)
+                continue
+            raise
 
 
 def id_digest(post_id):
@@ -141,8 +157,14 @@ def main():
         return 2
     try:
         result = scan(handle, int(time.time()))
-    except Exception:
-        print('Source check failed; results incomplete; saved state was not advanced.', file=sys.stderr)
+    except Exception as exc:
+        # Expose a safe failure category for diagnosis, never exception text/URLs/body.
+        if isinstance(exc, urllib.error.HTTPError):
+            category = f'HTTP {exc.code}'
+        else:
+            category = type(exc).__name__
+        print(f'Source check failed ({category}); results incomplete; saved state was not advanced.',
+              file=sys.stderr)
         return 1
     print(json.dumps(result))
     return 0

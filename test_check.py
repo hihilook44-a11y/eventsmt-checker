@@ -2,7 +2,10 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
-from check import collect_pages, id_digest, scan, video_posts
+import io
+import urllib.error
+from unittest.mock import patch
+from check import collect_pages, fetch_page, id_digest, scan, video_posts
 
 NOW = 1_800_000_000
 
@@ -21,6 +24,28 @@ def page(results, cursor=None, code=200):
     return {'code': code, 'results': results, 'cursor': {'bottom': cursor} if cursor else {}}
 
 class CheckTests(unittest.TestCase):
+
+    def test_fetch_page_retries_one_transient_transport_error(self):
+        response = io.BytesIO(b'{"code":200,"results":[],"cursor":{}}')
+        response.__enter__ = lambda: response
+        response.__exit__ = lambda *args: False
+        with patch('check.urllib.request.urlopen', side_effect=[urllib.error.URLError('redacted'), response]) as open_url, \
+             patch('check.time.sleep') as sleep:
+            result = fetch_page('__eventsMT')
+        self.assertEqual(result['code'], 200)
+        self.assertEqual(open_url.call_count, 2)
+        sleep.assert_called_once_with(1)
+
+    def test_fetch_page_does_not_retry_client_error(self):
+        error = urllib.error.HTTPError('https://example.invalid', 403, 'forbidden', {}, None)
+        with patch('check.urllib.request.urlopen', side_effect=error) as open_url, \
+             patch('check.time.sleep') as sleep:
+            with self.assertRaises(urllib.error.HTTPError):
+                fetch_page('__eventsMT')
+        self.assertEqual(open_url.call_count, 1)
+        sleep.assert_not_called()
+        error.close()
+
     def test_first_scan_is_baseline_and_logs_only_aggregates(self):
         with tempfile.TemporaryDirectory() as d:
             state = Path(d) / 'state.json'
