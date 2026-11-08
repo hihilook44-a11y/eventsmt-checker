@@ -1,2 +1,5 @@
-# Read-only source check (local proposal)
-This intentionally logs only aggregate counts and errors, without recording posts, personal data, credentials, published-source history, or artifacts. SOURCE_HANDLE must be configured as a repository secret; the source itself and this repository's existence may nonetheless be observable. It checks at most three pages; it does not detect new items, maintain a deduplication ledger, feed Wabi, assess audio, edit video, make thumbnails, or publish. Its outputs and workflow status may be publicly visible if deployed to a public repository. Schedule times are approximate and GitHub may skip or disable runs. This folder is not a deployed repo.
+# Read-only source check
+
+This workflow prints aggregate counts only. It never prints or persists post IDs, text, URLs, media, credentials, or a post ledger; IDs are held in memory only to deduplicate overlapping pages during a single run. The workflow checks at most three pages and counts video posts within a three-hour lookback window (the two-hour schedule overlaps the window to tolerate delayed runs). Pagination duplicates are ignored only within one run; counts may recur between runs, and this does not identify individual new posts or connect to Wabi's private queue.
+
+It does not assess audio, edit video, make thumbnails, or publish. The repository and workflow logs are public. GitHub schedule times are approximate and runs may be delayed or skipped.
