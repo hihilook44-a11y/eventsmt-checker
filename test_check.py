@@ -1,5 +1,8 @@
+import json
+import tempfile
 import unittest
-from check import count_page, scan_pages, LOOKBACK_SECONDS
+from pathlib import Path
+from check import collect_pages, id_digest, scan, video_posts
 
 NOW = 1_800_000_000
 
@@ -11,44 +14,87 @@ def post(pid, created, media_count=1, author='__eventsMT'):
             {'type': 'video', 'url': 'https://video.twimg.com/v.mp4'}
             for _ in range(media_count)
         ]},
-        # Decoy fields must never leak into counts/output.
-        'text': 'private decoy', 'url': 'https://x.com/private-decoy'
+        'text': 'decoy text', 'url': 'https://x.com/decoy'
     }
 
-class CheckTests(unittest.TestCase):
-    def test_recent_window_and_old_items(self):
-        seen=set()
-        data={'code':200,'results':[
-            post(1, NOW-60), post(2, NOW-LOOKBACK_SECONDS-1),
-            post(3, NOW+1), post(4, NOW-120, 2, author='someone_else')
-        ]}
-        self.assertEqual(count_page(data,'__eventsMT',seen,NOW,LOOKBACK_SECONDS),(3,1))
+def page(results, cursor=None, code=200):
+    return {'code': code, 'results': results, 'cursor': {'bottom': cursor} if cursor else {}}
 
-    def test_duplicates_across_pages_count_once_in_one_run(self):
-        first={'code':200,'results':[post(1,NOW-30)],'cursor':{'bottom':'next'}}
-        second={'code':200,'results':[post(1,NOW-30),post(2,NOW-30)],'cursor':{}}
+class CheckTests(unittest.TestCase):
+    def test_first_scan_is_baseline_and_logs_only_aggregates(self):
+        with tempfile.TemporaryDirectory() as d:
+            state = Path(d) / 'state.json'
+            result = scan('__eventsMT', NOW, lambda h,c: page([post(123456, NOW-10)]), state)
+            self.assertTrue(result['baseline_created'])
+            self.assertEqual(result['new_video_posts_since_last_successful_scan'], 0)
+            self.assertNotIn('123456', json.dumps(result))
+            self.assertNotIn('decoy', json.dumps(result))
+            saved = json.loads(state.read_text())
+            self.assertEqual(saved['id_sha256'], [id_digest('123456')])
+            self.assertNotIn('123456', state.read_text())
+
+    def test_new_public_id_after_successful_scan_counted_once(self):
+        with tempfile.TemporaryDirectory() as d:
+            state = Path(d) / 'state.json'
+            scan('__eventsMT', NOW, lambda h,c: page([post(10, NOW-100)]), state)
+            new_page = page([post(11, NOW+10), post(10, NOW-100)])
+            result = scan('__eventsMT', NOW+20, lambda h,c: new_page, state)
+            self.assertEqual(result['new_video_posts_since_last_successful_scan'], 1)
+            repeated = scan('__eventsMT', NOW+40, lambda h,c: new_page, state)
+            self.assertEqual(repeated['new_video_posts_since_last_successful_scan'], 0)
+
+    def test_old_unseen_ids_are_not_new_after_cursor_shift(self):
+        with tempfile.TemporaryDirectory() as d:
+            state = Path(d) / 'state.json'
+            scan('__eventsMT', NOW, lambda h,c: page([post(10, NOW-100)]), state)
+            result = scan('__eventsMT', NOW+50, lambda h,c: page([post(9, NOW-200)]), state)
+            self.assertEqual(result['new_video_posts_since_last_successful_scan'], 0)
+
+    def test_duplicate_posts_across_pages_count_once(self):
+        first = page([post(1, NOW-30)], 'next')
+        second = page([post(1, NOW-30), post(2, NOW-20)])
         calls=[]
         def loader(handle,cursor):
             calls.append(cursor)
             return first if cursor is None else second
-        result=scan_pages('__eventsMT',NOW,loader)
-        self.assertEqual(calls,[None,'next'])
-        self.assertEqual(result['videos_seen'],2)
-        self.assertEqual(result['videos_posted_within_lookback'],2)
+        posts, pages, more = collect_pages('__eventsMT', loader)
+        self.assertEqual(calls, [None, 'next'])
+        self.assertEqual(len(video_posts(posts)), 2)
+        self.assertEqual(pages, 2)
+        self.assertFalse(more)
 
-    def test_aggregate_output_contains_no_post_details(self):
-        data={'code':200,'results':[post(123456,NOW-30)],'cursor':{}}
-        result=scan_pages('__eventsMT',NOW,lambda h,c:data)
-        serialized=str(result)
-        self.assertNotIn('123456',serialized)
-        self.assertNotIn('private decoy',serialized)
-        self.assertNotIn('video.twimg.com',serialized)
-        self.assertFalse(result['candidate_audio_reviewed'])
-        self.assertFalse(result['publication_performed'])
+    def test_failed_source_does_not_advance_state(self):
+        with tempfile.TemporaryDirectory() as d:
+            state = Path(d) / 'state.json'
+            scan('__eventsMT', NOW, lambda h,c: page([post(1, NOW-30)]), state)
+            before = state.read_bytes()
+            with self.assertRaises(ValueError):
+                scan('__eventsMT', NOW+20, lambda h,c: page([], code=500), state)
+            self.assertEqual(state.read_bytes(), before)
 
-    def test_invalid_source_fails_closed(self):
-        with self.assertRaises(ValueError):
-            count_page({'code':500,'results':[]},'__eventsMT',set(),NOW,LOOKBACK_SECONDS)
+    def test_corrupt_state_fails_closed(self):
+        with tempfile.TemporaryDirectory() as d:
+            state = Path(d) / 'state.json'
+            state.write_text('{broken')
+            with self.assertRaises(ValueError):
+                scan('__eventsMT', NOW, lambda h,c: page([post(2, NOW)]), state)
+            self.assertEqual(state.read_text(), '{broken')
 
-if __name__=='__main__':
+    def test_more_pages_flag_and_caps_scan(self):
+        calls=[]
+        def loader(h,c):
+            calls.append(c)
+            return page([post(len(calls), NOW)], 'cursor'+str(len(calls)))
+        posts,pages,more=collect_pages('__eventsMT',loader)
+        self.assertEqual(pages,3)
+        self.assertEqual(len(posts),3)
+        self.assertTrue(more)
+
+    def test_audio_and_publication_stay_false(self):
+        with tempfile.TemporaryDirectory() as d:
+            result = scan('__eventsMT', NOW, lambda h,c: page([post(7,NOW)]), Path(d)/'state.json')
+            self.assertFalse(result['candidate_audio_reviewed'])
+            self.assertFalse(result['publication_performed'])
+
+if __name__ == '__main__':
     unittest.main()
