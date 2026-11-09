@@ -17,9 +17,6 @@ def main():
             matches=[x for x in post.get('socialAccountPosts',[]) if x.get('socialAccountId')==r.get('account')]
             if len(matches)!=1: raise ValueError('provider destination mismatch')
             status=matches[0].get('deliveryStatus')
-            if status == 'FAILED':
-                import json
-                print('Encrypted failure details:', f.encrypt(json.dumps(matches[0],ensure_ascii=False).encode()).decode())
             print('Provider delivery status:', status if status in ('NOT_STARTED','SENDING','PUBLISHED','FAILED') else 'OTHER')
     for r in s.get('candidate_deliveries',{}).values():
         if r.get('state') in ('published','delivery_recorded','delivery_uncertain'):
