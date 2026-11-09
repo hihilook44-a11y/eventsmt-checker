@@ -29,3 +29,9 @@ jobs:
             git commit -m 'Update public source ID dedup state'
             git push origin HEAD:main
           fi
+
+  backup-private-queue:
+    needs: check
+    if: ${{ always() }}
+    uses: ./.github/workflows/private-queue.yml
+    secrets: inherit
