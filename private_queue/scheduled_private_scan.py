@@ -6,7 +6,7 @@ considered a trustworthy end marker. Restart a fresh scan at another page size;
 never combine partial scans or advance queue/checkpoint without bounded overlap.
 The persistent Computer is not an independent scheduler.
 """
-import argparse, copy, fcntl, json, os, time
+import argparse, copy, fcntl, json, os, time, re
 from pathlib import Path
 from paginated_candidates import run
 from incremental_queue import transition, atomic_write
@@ -43,7 +43,11 @@ def main():
             try:
                 updated,stats=apply_scan(scan,ledger,old,started_at)
             except ValueError as e:
-                reasons.append(f'count={count}: {e}'); continue
+                reasons.append(f'count={count}: {e}')
+                for error in scan.get('errors',[]):
+                    m=re.match(r'Page (\d+): HTTPError: HTTP Error (\d{3}):',str(error))
+                    if m: reasons.append('page='+m.group(1)+' http='+m.group(2))
+                continue
             atomic_write(statepath,updated)
             print(json.dumps({**stats,'pages_checked':len(scan['pages']),'page_size':count,
                               'more_pages_available':scan['next_cursor_available'],

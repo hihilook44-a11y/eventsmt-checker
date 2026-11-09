@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Authenticated-encrypted, fail-closed discovery only; never publish."""
-import base64,json,os,subprocess,sys,tempfile
+import base64,json,os,subprocess,sys,tempfile,re
 from pathlib import Path
 from cryptography.fernet import Fernet, InvalidToken
 
@@ -45,6 +45,7 @@ def scan():
                 response=json.loads(proc.stdout)
                 known=('Source scan failed','Insufficient page coverage to reach prior checkpoint','Invalid discovery checkpoint','Existing private baseline required')
                 reasons=[name for name in known if any(name in item for item in response.get('reasons',[]) if isinstance(item,str))]
+                reasons += [item for item in response.get('reasons',[]) if isinstance(item,str) and re.fullmatch(r'page=\d+ http=\d{3}',item)]
             except (ValueError,TypeError,AttributeError): reasons=[]
             print('Source scan incomplete; encrypted state preserved. Reasons: '+(', '.join(reasons) or 'scanner error'),file=sys.stderr);return 1
         try: result=json.loads(proc.stdout); updated=json.loads((base/'state.json').read_text())
