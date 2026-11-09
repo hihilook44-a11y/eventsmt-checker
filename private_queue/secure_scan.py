@@ -40,7 +40,13 @@ def scan():
             p=base/name;p.write_text(json.dumps(snapshot[key],ensure_ascii=False));os.chmod(p,0o600)
         proc=subprocess.run([sys.executable,str(base/'scheduled_private_scan.py'),'--max-pages','5','--state',str(base/'state.json'),'--ledger',str(base/'published_sources.json')],capture_output=True,text=True,timeout=300)
         if proc.returncode:
-            print('Source scan incomplete; encrypted state preserved.',file=sys.stderr);return 1
+            # Whitelist diagnostics: do not expose URLs, text, identifiers, or secrets.
+            try:
+                response=json.loads(proc.stdout)
+                known=('Source scan failed','Insufficient page coverage to reach prior checkpoint','Invalid discovery checkpoint','Existing private baseline required')
+                reasons=[name for name in known if any(name in item for item in response.get('reasons',[]) if isinstance(item,str))]
+            except (ValueError,TypeError,AttributeError): reasons=[]
+            print('Source scan incomplete; encrypted state preserved. Reasons: '+(', '.join(reasons) or 'scanner error'),file=sys.stderr);return 1
         try: result=json.loads(proc.stdout); updated=json.loads((base/'state.json').read_text())
         except (json.JSONDecodeError,OSError):
             print('Invalid scanner response; encrypted state preserved.',file=sys.stderr);return 1
