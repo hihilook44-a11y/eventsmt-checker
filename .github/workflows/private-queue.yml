@@ -40,7 +40,9 @@ jobs:
             git push origin HEAD:main
           fi
       - name: Verify synthetic pipeline and durable safeguards
-        run: python -m unittest discover -s private_queue -p 'test_workflow_pipeline.py' -v
+        run: |
+          python -m unittest discover -s private_queue -p 'test_workflow_pipeline.py' -v
+          python -m unittest discover -s private_queue -p 'test_reviewed_delivery.py' -v
       - name: Prepare candidate for audio review
         env:
           PRIVATE_QUEUE_FERNET_KEY: ${{ secrets.PRIVATE_QUEUE_FERNET_KEY }}
@@ -52,8 +54,11 @@ jobs:
             git commit -m 'Checkpoint encrypted audio-review preparation'
             git push origin HEAD:main
           fi
-      - name: Register candidate in draft pipeline (audio gate closed)
+      - name: Process candidate with signed audio review gate
         env:
           PRIVATE_QUEUE_FERNET_KEY: ${{ secrets.PRIVATE_QUEUE_FERNET_KEY }}
           WOOPSOCIAL_API_KEY: ${{ secrets.WOOPSOCIAL_API_KEY }}
+          AUDIO_REVIEW_PUBLIC_KEY: ${{ secrets.AUDIO_REVIEW_PUBLIC_KEY }}
+          WOOPSOCIAL_PROJECT_ID: ${{ secrets.WOOPSOCIAL_PROJECT_ID }}
+          WOOPSOCIAL_YOUTUBE_ACCOUNT_ID: ${{ secrets.WOOPSOCIAL_YOUTUBE_ACCOUNT_ID }}
         run: python private_queue/workflow_pipeline.py

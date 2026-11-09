@@ -25,3 +25,7 @@ restart, and unknown-result protection; that synthetic test is not a live upload
 This does not publish or establish music-free audio. Full audio review bound to
 the exact bytes, a production review verifier, live delivery and a confirmed
 scheduled run remain necessary.
+
+## Reviewed delivery (not configured)
+
+The workflow can call `publish_reviewed` only for a pending, prepared candidate with a signed whole-audio review, exact file hash and configured YouTube destination. It requires `AUDIO_REVIEW_PUBLIC_KEY` (base64 raw Ed25519 public key), `WOOPSOCIAL_PROJECT_ID` and `WOOPSOCIAL_YOUTUBE_ACCOUNT_ID` as independently provisioned Actions secrets. No key, trusted reviewer, review capture or approval is provisioned by this code. Signatures only verify the origin and content of an attestation; they do not establish that the reviewer actually listened. Never sign or insert an attestation without a real full-audio review. Reviews would need to be stored under `audio_reviews` in the encrypted state using the schema in `audio_review.py`, via a secure authenticated review process that is not yet built. With any required setting absent or malformed, no audio candidate is promoted to public delivery. The recipient must be the intended verified account, and state is checkpointed before remote writes; uncertain outcomes must be investigated before retry. Local tests and synthetic draft uploads do not establish a live scheduled YouTube delivery.
