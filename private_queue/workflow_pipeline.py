@@ -34,13 +34,35 @@ def select_candidate(s):
             return key,item
     return None,None
 
+def reconcile_known_deliveries(snapshot,checkpoint,provider):
+    """Read back known submissions; only confirmed delivery updates the ledger.
+
+    No retry occurs for unknown submission IDs or statuses. Provider/network errors
+    stop the workflow rather than interpreting them as absence.
+    """
+    pipeline=CandidatePipeline(snapshot,checkpoint,provider)
+    for key,record in list(snapshot.get('candidate_deliveries',{}).items()):
+        if record.get('state') not in {'delivery_recorded','delivery_uncertain'} or not record.get('post_id'):
+            continue
+        post=provider.post(record['post_id'])
+        if post.get('id') != record['post_id'] or post.get('projectId') != record.get('project'):
+            raise PipelineError('post identity mismatch')
+        matches=[v for v in post.get('socialAccountPosts',[]) if v.get('socialAccountId') == record.get('account')]
+        if len(matches)!=1: raise PipelineError('post destination mismatch')
+        if matches[0].get('deliveryStatus')=='PUBLISHED':
+            pipeline.reconcile_published(key)
+        # NOT_STARTED, SENDING, FAILED or unknown stay recorded and never retry.
+
 def main():
-    f=read_key();s=load_snapshot(f);key,item=select_candidate(s)
+    f=read_key();s=load_snapshot(f)
+    cp=lambda obj:encrypted_git_checkpoint(ROOT.parent,f,obj)
+    provider=Provider()
+    reconcile_known_deliveries(s,cp,provider)
+    key,item=select_candidate(s)
     if item is None:
         print('No prepared candidate requiring registration.');return
     data=get_media(item['video_url'])
-    cp=lambda obj:encrypted_git_checkpoint(ROOT.parent,f,obj)
-    result=run_candidate(s,cp,Provider(),key,data)
+    result=run_candidate(s,cp,provider,key,data)
     print('Candidate registered:',result,'; no upload or publication.')
 
 if __name__=='__main__':
