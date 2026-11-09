@@ -1,0 +1,47 @@
+name: One-shot WoopSocial upload and draft verification
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: encrypted-private-queue
+  cancel-in-progress: false
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install 'cryptography==45.0.7'
+      - run: command -v ffmpeg >/dev/null || (sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg)
+      - name: Upload and draft synthetic silent test, checkpoints persisted before writes
+        env:
+          WOOPSOCIAL_API_KEY: ${{ secrets.WOOPSOCIAL_API_KEY }}
+          PRIVATE_QUEUE_FERNET_KEY: ${{ secrets.PRIVATE_QUEUE_FERNET_KEY }}
+        run: |
+          set -eu
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          checkpoint() {
+            git add private_queue/queue.enc
+            if ! git diff --cached --quiet; then
+              git commit -m 'Update encrypted integration test receipt'
+              git pull --rebase origin main
+              git push origin HEAD:main
+            fi
+          }
+          python private_queue/test_live_provider.py init
+          checkpoint
+          python private_queue/test_live_provider.py upload
+          checkpoint
+          python private_queue/test_live_provider.py prepare_draft
+          checkpoint
+          python private_queue/test_live_provider.py draft
+          checkpoint
+          python private_queue/test_live_provider.py verify
+          checkpoint
