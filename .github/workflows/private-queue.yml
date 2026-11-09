@@ -48,6 +48,7 @@ jobs:
         run: |
           python -m unittest discover -s private_queue -p 'test_workflow_pipeline.py' -v
           python -m unittest discover -s private_queue -p 'test_reviewed_delivery.py' -v
+          python -m unittest discover -s private_queue -p 'test_review_intake.py' -v
           python -m unittest discover -s private_queue -p 'test_fallback_dest.py' -v
       - name: Prepare candidate for audio review
         env:
