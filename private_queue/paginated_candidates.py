@@ -10,14 +10,16 @@ from pathlib import Path
 from candidates import URL, LEDGER, collect
 
 
-def run(max_pages=3, count=50):
+def run(max_pages=3, count=50, endpoint="media"):
+    if endpoint not in ("media", "statuses"): raise ValueError("invalid discovery endpoint")
+    source_url = URL if endpoint == "media" else URL.rsplit("/", 1)[0] + "/statuses"
     ledger=json.loads(LEDGER.read_text(encoding='utf-8'))
     published=set(str(x) for x in ledger['published_source_ids'])
     pages=[]; candidates=[]; seen=set(); seen_cursors=set(); cursor=None; errors=[]; ended=False
     for page_number in range(1, max_pages+1):
         params={'count':count}
         if cursor: params['cursor']=cursor
-        url=URL+'?'+urllib.parse.urlencode(params)
+        url=source_url+'?'+urllib.parse.urlencode(params)
         try:
             req=urllib.request.Request(url,headers={'User-Agent':'Mozilla/5.0','Accept':'application/json'})
             with urllib.request.urlopen(req,timeout=25) as resp: data=json.load(resp)
@@ -37,7 +39,7 @@ def run(max_pages=3, count=50):
             seen_cursors.add(bottom);cursor=bottom
         except Exception as exc:
             errors.append(f'Page {page_number}: {type(exc).__name__}: {exc}');break
-    return {'source':URL,'checked_at_utc':datetime.now(timezone.utc).isoformat(),
+    return {'source':source_url,'checked_at_utc':datetime.now(timezone.utc).isoformat(),
         'published_excluded':sorted(published),'pages':pages,'candidates':candidates,
         'end_of_timeline_seen':ended,'next_cursor_available':bool(cursor),
         'errors':errors,'note':'Bounded read-only scan; pagination/timestamps are not a completeness guarantee. Music is unchecked and no publication is authorized by these results.'}

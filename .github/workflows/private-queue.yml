@@ -48,6 +48,7 @@ jobs:
         run: |
           python -m unittest discover -s private_queue -p 'test_workflow_pipeline.py' -v
           python -m unittest discover -s private_queue -p 'test_reviewed_delivery.py' -v
+          python -m unittest discover -s private_queue -p 'test_fallback_dest.py' -v
       - name: Prepare candidate for audio review
         env:
           PRIVATE_QUEUE_FERNET_KEY: ${{ secrets.PRIVATE_QUEUE_FERNET_KEY }}

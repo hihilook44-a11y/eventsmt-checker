@@ -78,6 +78,21 @@ def exact_destination(provider,project,account):
     return sum(1 for r in rows if r.get('id')==account and r.get('platform')=='YOUTUBE' and r.get('status')=='CONNECTED')==1
 
 
+def established_destination(snapshot, provider):
+    """Reuse a successful draft-test target only if it still names the requested channel."""
+    r=snapshot.get('integration_test',{})
+    if r.get('state')!='verified_draft': return None,None
+    project,account=r.get('project'),r.get('account')
+    if not project or not account: return None,None
+    projects=provider.projects()
+    if sum(1 for p in projects if p.get('id')==project)!=1: return None,None
+    rows=provider.call('GET','/social-accounts?'+urllib.parse.urlencode({'projectId':project}))
+    matches=[r for r in rows if r.get('id')==account and r.get('platform')=='YOUTUBE' and r.get('status')=='CONNECTED']
+    if len(matches)!=1: return None,None
+    name=' '.join(str(matches[0].get('username','')).casefold().split())
+    if name!='mt fivem- زيكو': return None,None
+    return project,account
+
 def publish_reviewed(snapshot,checkpoint,provider,item,data,proof,verify,project,account):
     key=_key(item)
     if verify is None or not verify(item,data,proof): raise PipelineError('signed complete audio review required')
@@ -105,6 +120,9 @@ def main():
     verify=review_verifier(os.environ.get('AUDIO_REVIEW_PUBLIC_KEY',''))
     project=os.environ.get('WOOPSOCIAL_PROJECT_ID','').strip()
     account=os.environ.get('WOOPSOCIAL_YOUTUBE_ACCOUNT_ID','').strip()
+    if not project and not account:
+        project,account=established_destination(s,provider)
+        print('Saved YouTube destination:', 'matched' if project and account else 'not matched; publication disabled')
     for reviewed in reviewed_candidates(s,verify):
         if not project or not account: break
         reviewed_key=_key(reviewed)

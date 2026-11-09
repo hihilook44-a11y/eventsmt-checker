@@ -38,19 +38,19 @@ def main():
         os.chmod(str(statepath)+'.lock',0o600);fcntl.flock(lock,fcntl.LOCK_EX)
         old=json.loads(statepath.read_text(encoding='utf-8'));ledger=json.loads(ledgerpath.read_text(encoding='utf-8'))
         started_at=int(time.time()); reasons=[]
-        for count in (100,50):
-            scan=run(a.max_pages,count)
+        for endpoint,count,pages in (("media",100,a.max_pages),("media",50,a.max_pages),("statuses",100,min(20,a.max_pages * 4))):
+            scan=run(pages,count,endpoint)
             try:
                 updated,stats=apply_scan(scan,ledger,old,started_at)
             except ValueError as e:
-                reasons.append(f'count={count}: {e}')
+                reasons.append(f'endpoint={endpoint} count={count}: {e}')
                 for error in scan.get('errors',[]):
                     m=re.match(r'Page (\d+): HTTPError: HTTP Error (\d{3}):',str(error))
                     if m: reasons.append('page='+m.group(1)+' http='+m.group(2))
                 continue
             atomic_write(statepath,updated)
             print(json.dumps({**stats,'pages_checked':len(scan['pages']),'page_size':count,
-                              'more_pages_available':scan['next_cursor_available'],
+                              'more_pages_available':scan['next_cursor_available'],'endpoint':endpoint,
                               'publication_performed':False,'audio_verified':False}))
             return 0
         print(json.dumps({'success':False,'reasons':reasons,'queue_unchanged':True}))
