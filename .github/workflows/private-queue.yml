@@ -39,3 +39,21 @@ jobs:
             git pull --rebase origin main
             git push origin HEAD:main
           fi
+      - name: Verify synthetic pipeline and durable safeguards
+        run: python -m unittest discover -s private_queue -p 'test_workflow_pipeline.py' -v
+      - name: Prepare candidate for audio review
+        env:
+          PRIVATE_QUEUE_FERNET_KEY: ${{ secrets.PRIVATE_QUEUE_FERNET_KEY }}
+        run: |
+          command -v ffprobe >/dev/null || (sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg)
+          python private_queue/prepare_media.py
+          git add private_queue/queue.enc
+          if ! git diff --cached --quiet; then
+            git commit -m 'Checkpoint encrypted audio-review preparation'
+            git push origin HEAD:main
+          fi
+      - name: Register candidate in draft pipeline (audio gate closed)
+        env:
+          PRIVATE_QUEUE_FERNET_KEY: ${{ secrets.PRIVATE_QUEUE_FERNET_KEY }}
+          WOOPSOCIAL_API_KEY: ${{ secrets.WOOPSOCIAL_API_KEY }}
+        run: python private_queue/workflow_pipeline.py

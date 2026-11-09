@@ -15,3 +15,13 @@ Both modules are tested locally with fakes only; they are not wired into a GitHu
 Unknown upload/draft outcomes remain blocked, and require provider reconciliation.
 A confirmed draft is not a successful YouTube publication. Existing live synthetic
 test receipts must not be retried or replaced.
+
+The encrypted queue workflow now invokes `workflow_pipeline.py` after a scan and
+preparation. It registers one exact-byte candidate in the delivery state using a
+remote encrypted checkpoint. Production supplies no review verifier, so it stops
+at `awaiting_audio_review` and performs no provider write. The same entry function
+is exercised with a fake provider and a temporary encrypted Git remote for draft,
+restart, and unknown-result protection; that synthetic test is not a live upload.
+This does not publish or establish music-free audio. Full audio review bound to
+the exact bytes, a production review verifier, live delivery and a confirmed
+scheduled run remain necessary.
