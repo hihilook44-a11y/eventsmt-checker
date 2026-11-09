@@ -29,13 +29,13 @@ def fetch_page(handle, cursor=None):
         'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json'
     })
     # The public proxy occasionally fails transiently. Retry one time on transport,
-    # server, or truncated-JSON errors; never advance the dedup state on final failure.
+    # server, transient 404, or truncated-JSON errors; never advance state on failure.
     for attempt in range(2):
         try:
             with urllib.request.urlopen(request, timeout=25) as response:
                 return json.load(response)
         except urllib.error.HTTPError as exc:
-            if attempt == 0 and 500 <= exc.code < 600:
+            if attempt == 0 and (exc.code == 404 or 500 <= exc.code < 600):
                 time.sleep(1)
                 continue
             raise
@@ -73,7 +73,12 @@ def collect_pages(handle, page_loader=fetch_page):
     cursor = None
     pages = 0
     for _ in range(MAX_PAGES):
-        data = page_loader(handle, cursor)
+        try:
+            data = page_loader(handle, cursor)
+        except Exception:
+            # Do not print the handle, cursor, URL, response, or post data.
+            print(f'Source page {pages + 1} failed after retries.', file=sys.stderr)
+            raise
         if data.get('code') != 200 or not isinstance(data.get('results'), list):
             raise ValueError('Unexpected or incomplete source response')
         pages += 1
@@ -129,6 +134,18 @@ def save_state(path, digests, scanned_at):
 def scan(handle, now_epoch, page_loader=fetch_page, state_path=STATE_PATH):
     state = load_state(state_path)
     posts, pages, more = collect_pages(handle, page_loader)
+    # Do not advance the watermark when the bounded scan cannot reach the
+    # previous successful scan: newer unseen posts might be on an unscanned page.
+    last_scan = state['last_successful_scan'] if state else None
+    if more and last_scan is not None:
+        timestamps = []
+        for post in posts:
+            try:
+                timestamps.append(int(post.get('created_timestamp')))
+            except (TypeError, ValueError):
+                continue
+        if not timestamps or min(timestamps) > last_scan:
+            raise ValueError('Scan did not reach the previous successful scan')
     vids = video_posts(posts)
     old_digests = set(state['id_sha256']) if state else set()
     last_scan = state['last_successful_scan'] if state else None

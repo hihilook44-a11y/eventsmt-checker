@@ -46,6 +46,30 @@ class CheckTests(unittest.TestCase):
         sleep.assert_not_called()
         error.close()
 
+    def test_transient_404_retried_once(self):
+        error = urllib.error.HTTPError('https://example.invalid', 404, 'not found', {}, None)
+        response = io.BytesIO(b'{"code":200,"results":[],"cursor":{}}')
+        response.__enter__ = lambda: response
+        response.__exit__ = lambda *args: False
+        with patch('check.urllib.request.urlopen', side_effect=[error, response]) as open_url, \
+             patch('check.time.sleep'):
+            self.assertEqual(fetch_page('__eventsMT')['code'], 200)
+        self.assertEqual(open_url.call_count, 2)
+        error.close()
+
+    def test_incomplete_history_does_not_advance_watermark(self):
+        with tempfile.TemporaryDirectory() as d:
+            state = Path(d) / 'state.json'
+            scan('__eventsMT', NOW, lambda h,c: page([post(1, NOW-30)]), state)
+            before = state.read_bytes()
+            counter = iter(range(3))
+            def loader(h,c):
+                n = next(counter)
+                return page([post(10+n, NOW+1+n)], 'c'+str(n))
+            with self.assertRaises(ValueError):
+                scan('__eventsMT', NOW+20, loader, state)
+            self.assertEqual(state.read_bytes(), before)
+
     def test_first_scan_is_baseline_and_logs_only_aggregates(self):
         with tempfile.TemporaryDirectory() as d:
             state = Path(d) / 'state.json'
