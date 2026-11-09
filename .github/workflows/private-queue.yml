@@ -23,7 +23,12 @@ jobs:
       - name: Scan into encrypted queue
         env:
           PRIVATE_QUEUE_FERNET_KEY: ${{ secrets.PRIVATE_QUEUE_FERNET_KEY }}
-        run: python private_queue/secure_scan.py
+        run: |
+          for attempt in 1 2 3; do
+            if python private_queue/secure_scan.py; then exit 0; fi
+            if [ "$attempt" -eq 3 ]; then exit 1; fi
+            sleep $((attempt * 30))
+          done
       - name: Persist encrypted queue
         run: |
           git config user.name 'github-actions[bot]'
