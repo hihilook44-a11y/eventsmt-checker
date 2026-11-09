@@ -1,10 +1,11 @@
-"""Draft-only integration of encrypted discovery, verified review and provider receipts.
+"""Integration of encrypted discovery, verified review and provider receipts.
 
 A caller MUST provide a durable, serialized checkpoint: it must persist the snapshot
 remotely before returning and must fail if the remote has changed. It must never rebase
 or overwrite a concurrent queue revision. No entry point, scheduler or review authority
 is supplied here. A classifier or the presence of an audio track is not a review.
-Nothing here publishes. Uncertain writes block further attempts until reconciled.
+Public delivery is callable only after authenticated audio review and upload.
+Uncertain writes block further attempts until reconciled.
 """
 import hashlib
 import urllib.parse
@@ -115,6 +116,30 @@ class CandidatePipeline:
         r['state']='verified_draft'; self._checkpoint()
         return True
 
+    def publish_now(self,key,account,title,description):
+        """Submit exactly once after verified human audio review and successful upload.
+
+        A draft is not a published post: never submit from a draft state. An uncertain
+        create blocks retries until an operator reconciles provider state.
+        """
+        self._guard()
+        r=_record(self.s,key)
+        if r['state']!='upload_complete': raise PipelineError('state blocks publish or retry')
+        if not account or not title: raise PipelineError('missing destination or title')
+        if key.split(':')[0] in set(map(str,self.s['ledger']['published_source_ids'])):
+            raise PipelineError('source already published')
+        q=urllib.parse.urlencode({'projectId':r['project'],'mediaId':r['media_id']})
+        result=self.provider.call('GET','/media?'+q)
+        if not any(m.get('id')==r['media_id'] and m.get('projectId')==r['project'] for m in result.get('media',[])):
+            raise PipelineError('uploaded media not verified')
+        r.update(state='delivery_uncertain',account=account)
+        self._checkpoint()
+        post=self.provider.publish_now(account,title,description,r['media_id'])
+        if not isinstance(post,str) or not post: raise PipelineError('publication outcome unknown')
+        r.update(state='delivery_recorded',post_id=post)
+        self._checkpoint()
+        return post
+
     def reconcile_published(self,key):
         """Read a known post; record only a provider-confirmed YouTube publication.
 
@@ -122,7 +147,7 @@ class CandidatePipeline:
         """
         self._guard()
         r=_record(self.s,key)
-        if r['state'] not in {'draft_recorded','verified_draft','delivery_uncertain'} or not r.get('post_id'):
+        if r['state'] not in {'draft_recorded','verified_draft','delivery_uncertain','delivery_recorded'} or not r.get('post_id'):
             raise PipelineError('known post required for reconciliation')
         post=self.provider.post(r['post_id'])
         if post.get('id')!=r['post_id'] or post.get('projectId')!=r['project']:

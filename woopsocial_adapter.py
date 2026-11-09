@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Real WoopSocial transport and fail-closed private draft queue.
-No scheduler, no automatic song detection, no real YouTube publication.
+No scheduler or automatic song detection. Public submission requires a verified review gate.
 """
 import hashlib,json,os,sqlite3,urllib.request,urllib.parse,urllib.error,uuid
 from pathlib import Path
@@ -36,6 +36,13 @@ class Provider:
         result=self.call('POST','/media?'+urllib.parse.urlencode({'projectId':project}),body,'multipart/form-data; boundary='+boundary)
         if not isinstance(result,dict) or not result.get('mediaId'): raise ProviderError('upload response lacks mediaId')
         return result['mediaId']
+    def publish_now(self,account,title,description,media):
+        """Submit a public YouTube post. Caller owns durable idempotency and review."""
+        if not all((account,title,media)): raise ValueError('missing post fields')
+        payload={'content':[{'text':description,'media':[{'type':'MEDIA_LIBRARY','mediaId':media}]}], 'schedule':{'type':'PUBLISH_NOW'},'socialAccounts':[{'platform':'YOUTUBE','socialAccountId':account,'title':title,'privacy':'public'}]}
+        result=self.call('POST','/posts',json.dumps(payload,ensure_ascii=False).encode(),'application/json')
+        if not isinstance(result,dict) or not result.get('id') or result.get('schedule',{}).get('type')!='PUBLISH_NOW': raise ProviderError('publication response uncertain')
+        return result['id']
     def draft(self,account,title,description,media):
         if not all((account,title,media)): raise ValueError('missing post fields')
         payload={'content':[{'text':description,'media':[{'type':'MEDIA_LIBRARY','mediaId':media}]}], 'schedule':{'type':'DRAFT'},'socialAccounts':[{'platform':'YOUTUBE','socialAccountId':account,'title':title,'privacy':'private'}]}
