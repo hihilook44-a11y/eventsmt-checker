@@ -1,0 +1,30 @@
+name: Verify WoopSocial adapter read-only
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read project and account availability (no content or identifiers logged)
+        env:
+          WOOPSOCIAL_API_KEY: ${{ secrets.WOOPSOCIAL_API_KEY }}
+        run: |
+          python3 - <<'PY'
+          from woopsocial_adapter import Provider, ProviderError
+          try:
+              p = Provider()
+              projects = p.projects()
+              accounts = p.accounts()
+              if not isinstance(projects, list) or not isinstance(accounts, list):
+                  raise ValueError('Unexpected response shape')
+              print('Live authenticated project GET succeeded')
+              print('Live authenticated social-account GET succeeded')
+              print('Available YouTube accounts:', sum(1 for a in accounts if a.get('platform') == 'YOUTUBE'))
+          except (ValueError, ProviderError) as exc:
+              print('Read-only adapter check failed:', str(exc))
+              raise SystemExit(1)
+          PY
