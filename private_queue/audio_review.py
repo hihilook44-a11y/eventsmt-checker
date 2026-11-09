@@ -27,3 +27,33 @@ def verifier(public_key_b64):
             return True
         except Exception: return False
     return verify
+
+
+def has_no_audio_track(item, data, proof=None):
+    """Fail closed: valid video with no audio stream; no opinion on files with audio.
+
+    Inspect exact downloaded bytes, not metadata from a different version. Never mute
+    or alter a source; unknown, malformed, missing ffprobe and timeout all fail.
+    """
+    import subprocess,tempfile,os
+    try:
+        if not isinstance(data,bytes) or not data: return False
+        with tempfile.TemporaryDirectory(prefix='audio-track-check-') as d:
+            p=os.path.join(d,'input.mp4')
+            with open(p,'wb') as f: f.write(data)
+            r=subprocess.run(['ffprobe','-v','error','-show_streams','-show_format','-of','json',p],capture_output=True,timeout=45,check=True)
+            obj=json.loads(r.stdout); streams=obj.get('streams')
+            if not isinstance(streams,list) or not streams: return False
+            if any(not isinstance(st,dict) or not isinstance(st.get('codec_type'),str) for st in streams): return False
+            if not any(st['codec_type']=='video' and st.get('codec_name') for st in streams): return False
+            if any(st['codec_type']=='audio' for st in streams): return False
+            duration=float(obj.get('format',{}).get('duration','0'))
+            return duration>0
+    except Exception: return False
+
+
+def verifier_with_silent_sources(public_key_b64):
+    human=verifier(public_key_b64)
+    def verify(item,data,proof):
+        return has_no_audio_track(item,data,proof) or (human is not None and human(item,data,proof))
+    return verify

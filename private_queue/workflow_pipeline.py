@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Process encrypted candidates with fail-closed, signed whole-audio review.
 
-Without an independently provisioned review key, signed evidence, and an exact
-configured destination, this only registers candidates for review. No automatic
-audio analysis can confer approval. Checkpoints precede all provider writes.
+Audio-bearing candidates require a signed complete review. Unmodified files with
+no audio stream may pass an exact-byte probe; no classifier confers approval.
+A matching destination and checkpoints remain required before provider writes.
 """
 import sys,os,re,hashlib,urllib.parse
 from pathlib import Path
@@ -14,7 +14,7 @@ from prepare_media import get_media
 from candidate_pipeline import CandidatePipeline,PipelineError,_key
 from git_checkpoint import encrypted_git_checkpoint
 from woopsocial_adapter import Provider
-from audio_review import verifier as review_verifier
+from audio_review import verifier_with_silent_sources as review_verifier
 
 def run_candidate(snapshot,checkpoint,provider,key,data,project=None,account=None,title=None,description='',proof=None,verifier=None):
     pipeline=CandidatePipeline(snapshot,checkpoint,provider,verifier)
@@ -56,17 +56,19 @@ def reconcile_known_deliveries(snapshot,checkpoint,provider):
 
 
 def reviewed_candidates(snapshot,verify):
-    """Yield only candidates with authentic, byte-bound review evidence.
+    """Select signed-review candidates or metadata-marked audio-free candidates.
 
-    Do not download or advance any other records, including uncertain submissions.
+    Metadata never authorizes publishing: an exact-byte verification and saved
+    hash match are still required. Uncertain submissions are never advanced.
     """
     if verify is None: return []
     proofs=snapshot.get('audio_reviews',{})
+    prepared=snapshot.get('prepared_media',{})
     deliveries=snapshot.get('candidate_deliveries',{})
     published=set(map(str,snapshot['ledger']['published_source_ids']))
     return [item for item in snapshot['state']['pending']
             if _key(item).split(':')[0] not in published
-            and _key(item) in proofs
+            and (_key(item) in proofs or prepared.get(_key(item),{}).get('has_audio') is False)
             and deliveries.get(_key(item),{}).get('state') in ('awaiting_audio_review','upload_complete')]
 
 
@@ -127,7 +129,7 @@ def main():
         if not project or not account: break
         reviewed_key=_key(reviewed)
         data=get_media(reviewed['video_url'])
-        state=publish_reviewed(s,cp,provider,reviewed,data,s['audio_reviews'][reviewed_key],verify,project,account)
+        state=publish_reviewed(s,cp,provider,reviewed,data,s.get('audio_reviews',{}).get(reviewed_key),verify,project,account)
         print('Reviewed candidate submitted; delivery state:',state)
         return
     key,item=select_candidate(s)
