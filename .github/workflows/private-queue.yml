@@ -62,8 +62,6 @@ jobs:
             git push origin HEAD:main
           fi
       - name: Process candidate with signed audio review gate
-        # Publishing is paused pending the owner’s comparison and direction.
-        if: ${{ false }}
         env:
           PRIVATE_QUEUE_FERNET_KEY: ${{ secrets.PRIVATE_QUEUE_FERNET_KEY }}
           WOOPSOCIAL_API_KEY: ${{ secrets.WOOPSOCIAL_API_KEY }}
