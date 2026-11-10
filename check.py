@@ -20,8 +20,10 @@ MAX_LEDGER_IDS = 5000
 STATE_PATH = Path(os.environ.get('STATE_PATH', 'state/seen_post_ids.json'))
 
 
-def fetch_page(handle, cursor=None):
-    url = 'https://api.fxtwitter.com/2/profile/' + urllib.parse.quote(handle, safe='') + '/media'
+def fetch_page(handle, cursor=None, endpoint="media"):
+    if endpoint not in ("media", "statuses"):
+        raise ValueError("invalid discovery endpoint")
+    url = 'https://api.fxtwitter.com/2/profile/' + urllib.parse.quote(handle, safe='') + '/' + endpoint
     params = {'count': 50}
     if cursor:
         params['cursor'] = cursor
@@ -172,19 +174,23 @@ def main():
     if not handle or not all(c.isascii() and (c.isalnum() or c == '_') for c in handle):
         print('Source handle is missing or invalid.', file=sys.stderr)
         return 2
-    try:
-        result = scan(handle, int(time.time()))
-    except Exception as exc:
-        # Expose a safe failure category for diagnosis, never exception text/URLs/body.
-        if isinstance(exc, urllib.error.HTTPError):
-            category = f'HTTP {exc.code}'
-        else:
-            category = type(exc).__name__
-        print(f'Source check failed ({category}); results incomplete; saved state was not advanced.',
-              file=sys.stderr)
-        return 1
-    print(json.dumps(result))
-    return 0
+    # Restart at page one for each endpoint; never combine incompatible cursors.
+    # Each failed scan leaves the saved watermark untouched.
+    failures = []
+    started_at = int(time.time())
+    for endpoint in ('statuses', 'media'):
+        try:
+            result = scan(handle, started_at,
+                          lambda h, c: fetch_page(h, c, endpoint))
+        except Exception as exc:
+            category = f'HTTP {exc.code}' if isinstance(exc, urllib.error.HTTPError) else type(exc).__name__
+            failures.append(f'{endpoint}: {category}')
+            continue
+        print(json.dumps(result))
+        return 0
+    print('Source check failed (' + ', '.join(failures) + '); results incomplete; saved state was not advanced.',
+          file=sys.stderr)
+    return 1
 
 
 if __name__ == '__main__':

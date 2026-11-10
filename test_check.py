@@ -139,6 +139,39 @@ class CheckTests(unittest.TestCase):
         self.assertEqual(len(posts),3)
         self.assertTrue(more)
 
+    def test_main_restarts_from_first_page_after_statuses_failure(self):
+        import check
+        calls = []
+        with tempfile.TemporaryDirectory() as d:
+            state = Path(d) / 'state.json'
+            scan('__eventsMT', NOW, lambda h,c: page([post(1, NOW-30)]), state)
+            def loader(handle, cursor, endpoint):
+                calls.append((endpoint,cursor))
+                if endpoint == 'statuses':
+                    raise urllib.error.HTTPError('https://example.invalid', 404, 'not found', {}, None)
+                return page([post(1, NOW-30)])
+            with patch('check.STATE_PATH', state), patch('check.fetch_page', side_effect=loader), \
+                 patch('check.time.time', return_value=NOW+20), patch('check.os.environ', {}):
+                # default state_path is bound at definition; redirect scan for this test.
+                original_scan = check.scan
+                with patch('check.scan', side_effect=lambda h,t,loader: original_scan(h,t,loader,state)):
+                    self.assertEqual(check.main(), 0)
+            self.assertEqual(calls, [('statuses',None),('media',None)])
+            self.assertEqual(json.loads(state.read_text())['last_successful_scan'], NOW+20)
+
+    def test_main_failure_preserves_state(self):
+        import check
+        with tempfile.TemporaryDirectory() as d:
+            state = Path(d) / 'state.json'
+            scan('__eventsMT', NOW, lambda h,c: page([post(1, NOW-30)]), state)
+            before = state.read_bytes()
+            original_scan = check.scan
+            with patch('check.fetch_page', side_effect=urllib.error.URLError('redacted')), \
+                 patch('check.scan', side_effect=lambda h,t,loader: original_scan(h,t,loader,state)), \
+                 patch('check.time.time', return_value=NOW+20), patch('check.os.environ', {}):
+                self.assertEqual(check.main(), 1)
+            self.assertEqual(state.read_bytes(), before)
+
     def test_audio_and_publication_stay_false(self):
         with tempfile.TemporaryDirectory() as d:
             result = scan('__eventsMT', NOW, lambda h,c: page([post(7,NOW)]), Path(d)/'state.json')
