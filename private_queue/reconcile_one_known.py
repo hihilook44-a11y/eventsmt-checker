@@ -36,6 +36,9 @@ def match_record(snapshot, provider, raw):
         raise ValueError('provider idempotency metadata mismatch')
     media=post.get('mediaItems',[])
     if len(media)!=1 or media[0].get('url')!=record.get('media_id'):
+        from urllib.parse import urlsplit
+        saved=record.get('media_id')
+        print('Media comparison:', {'items':len(media),'item_fields':sorted(media[0].keys()) if media and isinstance(media[0],dict) else [], 'saved_type':type(saved).__name__, 'saved_host':urlsplit(saved).hostname if isinstance(saved,str) else None, 'post_host':urlsplit(media[0].get('url','')).hostname if media and isinstance(media[0],dict) else None, 'same_path':bool(media and isinstance(saved,str) and isinstance(media[0],dict) and urlsplit(saved).path==urlsplit(media[0].get('url','')).path)}, flush=True)
         raise ValueError('media mismatch')
     platforms=[p for p in post.get('platforms',[]) if p.get('accountId')==provider.account and p.get('platform')=='youtube']
     if len(platforms)!=1 or platforms[0].get('status')!='published' or not platforms[0].get('platformPostId'):
