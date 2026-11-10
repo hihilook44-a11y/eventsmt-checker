@@ -1,7 +1,9 @@
 import json
+import io
 import sys
 import unittest
 from pathlib import Path
+from urllib.error import HTTPError
 sys.path.insert(0,str(Path(__file__).resolve().parent.parent))
 from zernio_adapter import ZernioProvider, ZernioError, stable_idempotency_key
 
@@ -27,6 +29,18 @@ class ZernioAdapterTests(unittest.TestCase):
         with self.assertRaisesRegex(ZernioError, 'GET accounts: HTTP 403') as caught:
             self.p._api('GET','/accounts?profileId=private-profile')
         self.assertNotIn('private-profile',str(caught.exception))
+
+    def test_http_error_logs_only_allowlisted_type(self):
+        class BadOpener:
+            def open(self, req, timeout):
+                body=b'{"type":"invalid_request_error","error":"private-post-id and secret"}'
+                raise HTTPError(req.full_url, 400, 'Bad Request', {}, io.BytesIO(body))
+        self.p.opener=BadOpener()
+        with self.assertRaisesRegex(ZernioError, 'GET posts: HTTP 400 invalid_request_error') as caught:
+            self.p._api('GET','/posts/opaque-post-id')
+        self.assertNotIn('private-post-id',str(caught.exception))
+        self.assertNotIn('secret',str(caught.exception))
+        self.assertNotIn('opaque-post-id',str(caught.exception))
 
     def test_schedule_payload_is_idempotent_public_youtube(self):
         def api(method,path,payload=None,headers=None):

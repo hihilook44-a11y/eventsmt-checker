@@ -15,7 +15,7 @@ from prepare_media import get_media
 from candidate_pipeline import CandidatePipeline,PipelineError,_key
 from git_checkpoint import encrypted_git_checkpoint
 from woopsocial_adapter import Provider
-from zernio_adapter import ZernioProvider, stable_idempotency_key
+from zernio_adapter import ZernioProvider, ZernioError, stable_idempotency_key
 from audio_review import verifier_with_silent_sources as review_verifier
 
 def run_candidate(snapshot,checkpoint,provider,key,data,project=None,account=None,title=None,description='',proof=None,verifier=None):
@@ -64,6 +64,27 @@ def reconcile_known_deliveries(snapshot,checkpoint,provider,providers=None):
             record['state']='delivery_failed'; checkpoint(snapshot)
         # NOT_STARTED, SENDING or unknown stay recorded; never retry.
 
+
+def reconciliation_summary(snapshot):
+    """Return a privacy-safe shape/count summary of persisted delivery records."""
+    counts={}
+    allowed_states={'upload_uncertain','draft_uncertain','delivery_uncertain','delivery_recorded',
+                    'delivery_scheduled','delivery_failed','published','awaiting_audio_review','upload_complete','verified_draft'}
+    for record in snapshot.get('candidate_deliveries',{}).values():
+        if not isinstance(record,dict):
+            provider,state,id_shape='other','other','missing'
+        else:
+            raw_provider=record.get('provider')
+            provider=raw_provider if raw_provider in {'zernio','woopsocial'} else 'other'
+            raw_state=record.get('state')
+            state=raw_state if raw_state in allowed_states else 'other'
+            post_id=record.get('post_id')
+            if not post_id: id_shape='missing'
+            elif isinstance(post_id,str) and re.fullmatch(r'[0-9a-fA-F]{24}',post_id): id_shape='24hex'
+            else: id_shape='other'
+        key='provider='+provider+' state='+state+' post_id='+id_shape
+        counts[key]=counts.get(key,0)+1
+    return dict(sorted(counts.items()))
 
 def delivery_in_flight(snapshot):
     """Stop further delivery when an earlier remote write has an unresolved outcome."""
@@ -149,6 +170,7 @@ def publish_reviewed(snapshot,checkpoint,provider,item,data,proof,verify,project
 def main():
     f=read_key();s=load_snapshot(f)
     cp=lambda obj:encrypted_git_checkpoint(ROOT.parent,f,obj)
+    print('Persisted delivery summary:', json.dumps(reconciliation_summary(s), sort_keys=True))
     providers={}
     zernio_enabled=zernio_scheduling_enabled()
     if zernio_enabled:

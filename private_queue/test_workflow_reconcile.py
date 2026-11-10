@@ -1,11 +1,16 @@
 import unittest
-from workflow_pipeline import reconcile_known_deliveries, delivery_in_flight
+from workflow_pipeline import reconcile_known_deliveries, delivery_in_flight, reconciliation_summary
 from candidate_pipeline import PipelineError
 class P:
  def __init__(self,status):self.status=status;self.calls=[]
  def post(self,id):self.calls.append(id);return {'id':id,'projectId':'p','socialAccountPosts':[{'socialAccountId':'a','deliveryStatus':self.status}]}
 def snapshot():return {'state':{'pending':[]},'ledger':{'published_source_ids':[]},'candidate_deliveries':{'12:34':{'state':'delivery_recorded','post_id':'post','project':'p','account':'a'}}}
 class Tests(unittest.TestCase):
+ def test_reconciliation_summary_never_exposes_ids(self):
+  s=snapshot();s['candidate_deliveries']['12:34']['provider']='zernio';s['candidate_deliveries']['12:34']['post_id']='private-post-id-secret'
+  summary=reconciliation_summary(s)
+  self.assertEqual(summary,{'provider=zernio state=delivery_recorded post_id=other':1})
+  self.assertNotIn('private-post-id-secret',repr(summary))
  def test_known_delivery_recorded_on_success_only(self):
   s=snapshot();writes=[];p=P('PUBLISHED');reconcile_known_deliveries(s,lambda s:writes.append(1),p)
   self.assertEqual(s['ledger']['published_source_ids'],['12']);self.assertEqual(s['candidate_deliveries']['12:34']['state'],'published');self.assertEqual(len(writes),1)

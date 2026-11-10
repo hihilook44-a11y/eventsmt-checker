@@ -57,8 +57,19 @@ class ZernioProvider:
                 except (UnicodeDecodeError, json.JSONDecodeError):
                     raise ZernioError('invalid JSON response') from None
         except urllib.error.HTTPError as exc:
-            # Do not include provider body or signed URL; these can contain sensitive material.
-            raise ZernioError('HTTP ' + str(exc.code)) from None
+            # Surface only a provider error class from a strict allowlist. Never log its
+            # message/body, which may contain IDs, submitted text, or signed URLs.
+            error_type = None
+            try:
+                payload = json.loads(exc.read(8192))
+                candidate = payload.get('type') if isinstance(payload, dict) else None
+                if candidate in {'invalid_request_error', 'authentication_error', 'permission_error',
+                                 'not_found', 'rate_limit_error', 'platform_error', 'api_error'}:
+                    error_type = candidate
+            except (OSError, ValueError, UnicodeDecodeError):
+                pass
+            suffix = ' ' + error_type if error_type else ''
+            raise ZernioError('HTTP ' + str(exc.code) + suffix) from None
         except (urllib.error.URLError, TimeoutError, OSError, ValueError) as exc:
             if isinstance(exc, ZernioError):
                 raise
