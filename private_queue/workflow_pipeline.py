@@ -102,7 +102,10 @@ def reconcile_known_deliveries(snapshot,checkpoint,provider,providers=None):
             pipeline.reconcile_published(key)
         elif selected_name=='zernio' and status=='SCHEDULED' and record.get('state')!='delivery_scheduled':
             record['state']='delivery_scheduled'; checkpoint(snapshot)
-        elif selected_name=='zernio' and status=='FAILED' and record.get('state')!='delivery_failed':
+        elif status=='FAILED' and record.get('state')!='delivery_failed':
+            # A provider's definitive failure is not an in-flight submission; mark it
+            # so future, independently reviewed candidates aren't blocked forever.
+            # This records failure only and never retries or republishes this item.
             record['state']='delivery_failed'; checkpoint(snapshot)
         elif resolved_legacy:
             # Persist the provider only after exact remote identity was established.

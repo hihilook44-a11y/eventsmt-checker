@@ -21,9 +21,23 @@ class Tests(unittest.TestCase):
   s=snapshot();writes=[];p=P('PUBLISHED');reconcile_known_deliveries(s,lambda s:writes.append(1),p)
   self.assertEqual(s['ledger']['published_source_ids'],['12']);self.assertEqual(s['candidate_deliveries']['12:34']['state'],'published');self.assertEqual(len(writes),1)
  def test_pending_and_failed_are_not_retried_or_recorded(self):
-  for status in ['NOT_STARTED','SENDING','FAILED','SCHEDULED']:
+  for status in ['NOT_STARTED','SENDING','SCHEDULED']:
    s=snapshot();s['candidate_deliveries']['12:34']['provider']='woopsocial';writes=[]
    reconcile_known_deliveries(s,lambda s:writes.append(1),P(status));self.assertEqual(s['ledger']['published_source_ids'],[]);self.assertEqual(writes,[])
+ def test_provider_failed_delivery_is_checkpointed_without_retry(self):
+  s=snapshot();s['candidate_deliveries']['12:34']['provider']='woopsocial';writes=[];p=P('FAILED')
+  reconcile_known_deliveries(s,lambda state:writes.append(1),p,{'woopsocial':p})
+  self.assertEqual(s['candidate_deliveries']['12:34']['state'],'delivery_failed')
+  self.assertEqual(s['ledger']['published_source_ids'],[])
+  self.assertFalse(delivery_in_flight(s))
+  self.assertEqual(p.calls,['post']);self.assertEqual(writes,[1])
+ def test_zernio_failed_delivery_is_checkpointed_without_retry(self):
+  s=snapshot();s['candidate_deliveries']['12:34']['provider']='zernio';writes=[];p=P('FAILED')
+  reconcile_known_deliveries(s,lambda state:writes.append(1),p,{'zernio':p})
+  self.assertEqual(s['candidate_deliveries']['12:34']['state'],'delivery_failed')
+  self.assertEqual(s['ledger']['published_source_ids'],[])
+  self.assertFalse(delivery_in_flight(s))
+  self.assertEqual(p.calls,['post']);self.assertEqual(writes,[1])
  def test_zernio_scheduled_receipt_is_checkpointed(self):
   s=snapshot();s['candidate_deliveries']['12:34']['provider']='zernio';writes=[];p=P('SCHEDULED')
   reconcile_known_deliveries(s,lambda s:writes.append(1),p,{'zernio':p})
