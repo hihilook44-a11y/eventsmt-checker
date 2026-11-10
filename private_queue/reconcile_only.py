@@ -1,32 +1,35 @@
 #!/usr/bin/env python3
-"""Read known submissions and checkpoint confirmed publications; never create posts."""
+"""Reconcile known posts and safely recover a recent idempotent Zernio timeout."""
+import json
+import os
 from pathlib import Path
 from secure_scan import read_key,load_snapshot
-from workflow_pipeline import reconcile_known_deliveries
+from workflow_pipeline import (reconcile_known_deliveries,recover_uncertain_scheduled,
+                               reconciliation_summary,zernio_scheduling_enabled)
 from git_checkpoint import encrypted_git_checkpoint
 from woopsocial_adapter import Provider
+from zernio_adapter import ZernioProvider
+from audio_review import verifier_with_silent_sources as review_verifier
 
 def main():
-    f=read_key();s=load_snapshot(f); p=Provider(); cp=lambda obj:encrypted_git_checkpoint(Path(__file__).resolve().parent.parent,f,obj)
-    reconcile_known_deliveries(s,cp,p)
+    f=read_key();s=load_snapshot(f)
+    cp=lambda obj:encrypted_git_checkpoint(Path(__file__).resolve().parent.parent,f,obj)
+    providers={}
+    if zernio_scheduling_enabled():
+        providers['zernio']=ZernioProvider()
+    if os.environ.get('WOOPSOCIAL_API_KEY','').strip():
+        providers['woopsocial']=Provider()
+    if not providers:
+        raise ValueError('no configured provider for reconciliation')
+    provider=next(iter(providers.values()))
+    zernio=providers.get('zernio')
+    if zernio:
+        verifier=review_verifier(os.environ.get('AUDIO_REVIEW_PUBLIC_KEY',''))
+        if recover_uncertain_scheduled(s,cp,zernio,verifier):
+            print('Recovered one uncertain Zernio post with its original idempotency key.')
+    reconcile_known_deliveries(s,cp,provider,providers)
+    print('Persisted delivery summary:',json.dumps(reconciliation_summary(s),sort_keys=True))
     for r in s.get('candidate_deliveries',{}).values():
-        if r.get('state') in ('delivery_recorded','delivery_uncertain') and r.get('post_id'):
-            post=p.post(r['post_id'])
-            if post.get('id') != r['post_id'] or post.get('projectId') != r.get('project'):
-                raise ValueError('provider identity mismatch')
-            matches=[x for x in post.get('socialAccountPosts',[]) if x.get('socialAccountId')==r.get('account')]
-            if len(matches)!=1: raise ValueError('provider destination mismatch')
-            status=matches[0].get('deliveryStatus')
-            print('Provider delivery status:', status if status in ('NOT_STARTED','SENDING','PUBLISHED','FAILED') else 'OTHER')
-            if status == 'FAILED':
-                # Report only coarse categories, never arbitrary provider content.
-                import json
-                text=str(matches[0].get('errorMessage') or '').lower()
-                for label,terms in [('quota_or_limit',('quota','limit','capacity')),('authentication',('auth','unauthorized','expired','permission')),('media',('media','format','upload')),('copyright',('copyright','content id'))]:
-                    if any(term in text for term in terms): print('Failure category:',label)
-    for r in s.get('candidate_deliveries',{}).values():
-        if r.get('state') in ('published','delivery_recorded','delivery_uncertain'):
-            print('Delivery:',r['state'])
-            if r.get('state')=='published' and r.get('external_post_url','').startswith(('https://www.youtube.com/','https://youtube.com/','https://youtu.be/')):
-                print('YouTube:',r['external_post_url'])
+        if r.get('state')=='published' and r.get('external_post_url','').startswith(('https://www.youtube.com/','https://youtube.com/','https://youtu.be/')):
+            print('Published YouTube URL:',r['external_post_url'])
 if __name__=='__main__': main()

@@ -174,6 +174,30 @@ class CandidatePipeline:
         self._checkpoint()
         return post
 
+    def retry_scheduled_idempotently(self,key,account,title,description,scheduled_for,idempotency_key):
+        """Recover a prior uncertain Zernio create using its original 24-hour key.
+
+        This is intentionally limited to one persisted Zernio attempt with the exact
+        same account, schedule, media and key. Zernio returns the original post for a
+        same-key retry within 24 hours; no duplicate post is created.
+        """
+        self._guard()
+        r=_record(self.s,key)
+        if r.get('state')!='delivery_uncertain' or r.get('post_id'):
+            raise PipelineError('no uncertain scheduled post to recover')
+        if getattr(self.provider,'name','')!='zernio':
+            raise PipelineError('idempotent recovery is Zernio-only')
+        if (r.get('provider')!='zernio' or r.get('account')!=account or
+            r.get('scheduled_for')!=scheduled_for or r.get('idempotency_key')!=idempotency_key or
+            not r.get('media_id') or not r.get('project') or not title):
+            raise PipelineError('saved scheduled attempt does not match recovery')
+        post=self.provider.publish_scheduled(account,title,description,r['media_id'],scheduled_for,idempotency_key)
+        if not isinstance(post,str) or not post:
+            raise PipelineError('idempotent recovery outcome unknown')
+        r.update(state='delivery_recorded',post_id=post)
+        self._checkpoint()
+        return post
+
     def reconcile_published(self,key):
         """Read a known post; record only a provider-confirmed YouTube publication.
 

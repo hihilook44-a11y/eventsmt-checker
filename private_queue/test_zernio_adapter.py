@@ -57,10 +57,28 @@ class ZernioAdapterTests(unittest.TestCase):
         self.assertEqual(body['metadata']['eventsmtPipelineKey'],idem)
         self.assertNotIn('publishNow',body)
 
-    def test_non_scheduled_create_is_not_reported_as_confirmed(self):
+    def test_post_create_accepts_documented_207_partial_response(self):
+        class Response:
+            status=207
+            def __enter__(self): return self
+            def __exit__(self,*args): return False
+            def read(self): return b'{"post":{"_id":"post-1","status":"partial"}}'
+        class Opener:
+            def open(self,req,timeout): return Response()
+        self.p.opener=Opener()
+        result=self.p._api('POST','/posts',{'content':'caption'})
+        self.assertEqual(result['post']['status'],'partial')
+
+    def test_published_create_response_is_read_back_not_rejected(self):
         self.p._api=lambda *a,**k:{'post':{'_id':'post-1','status':'published','platforms':[{'platform':'youtube','accountId':ACCOUNT,'status':'published'}]}}
-        with self.assertRaises(ZernioError):
-            self.p.publish_scheduled(ACCOUNT,'title','description','https://media.zernio.com/temp/v.mp4','2026-11-10T11:00:00Z','key')
+        self.assertEqual(self.p.publish_scheduled(ACCOUNT,'title','description','https://media.zernio.com/temp/v.mp4','2026-11-10T11:00:00Z','key'),'post-1')
+
+    def test_unknown_status_and_wrong_destination_are_rejected(self):
+        media='https://media.zernio.com/temp/v.mp4'
+        self.p._api=lambda *a,**k:{'post':{'_id':'post-1','status':'queued','platforms':[{'platform':'youtube','accountId':ACCOUNT,'status':'pending'}]}}
+        with self.assertRaises(ZernioError): self.p.publish_scheduled(ACCOUNT,'title','description',media,'2026-11-10T11:00:00Z','key')
+        self.p._api=lambda *a,**k:{'post':{'_id':'post-1','status':'scheduled','platforms':[{'platform':'youtube','accountId':'wrong-account','status':'pending'}]}}
+        with self.assertRaises(ZernioError): self.p.publish_scheduled(ACCOUNT,'title','description',media,'2026-11-10T11:00:00Z','key')
 
     def test_post_normalizes_scheduled_and_published_for_pipeline(self):
         self.p._api=lambda *a,**k:{'post':{'_id':'p','status':'scheduled','platforms':[{'platform':'youtube','accountId':ACCOUNT,'status':'pending'}]}}

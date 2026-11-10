@@ -89,7 +89,8 @@ class ZernioProvider:
         else:
             endpoint = 'API'
         try:
-            _, result = self._request(method, BASE + path, body, 'application/json' if body is not None else None, headers)
+            accepted=(200, 201, 202, 207) if clean_path == '/posts' and method == 'POST' else (200, 201)
+            _, result = self._request(method, BASE + path, body, 'application/json' if body is not None else None, headers, accepted=accepted)
         except ZernioError as exc:
             # Include only a fixed endpoint label and sanitized error, never query, IDs,
             # provider bodies, credentials, or signed URLs.
@@ -151,11 +152,14 @@ class ZernioProvider:
         result = self._api('POST', '/posts', payload, {'Idempotency-Key': idempotency_key})
         post = result.get('post') if isinstance(result, dict) else None
         post_id = post.get('_id') if isinstance(post, dict) else None
-        # An API create response alone is not sufficient: demand a scheduled record.
-        if not post_id or post.get('status') != 'scheduled':
+        # Zernio may return a processing or published platform result even when a
+        # scheduledFor value was supplied. The durable post ID plus the exact target
+        # account/platform establish which logical request was accepted; read-back
+        # reconciliation decides whether it is scheduled, published or failed.
+        if not post_id or post.get('status') not in ('scheduled', 'publishing', 'published', 'partial', 'failed'):
             raise ZernioError('scheduled post not confirmed')
         matches = [p for p in post.get('platforms', []) if p.get('accountId') == account and p.get('platform') == 'youtube']
-        if len(matches) != 1 or matches[0].get('status') not in ('pending', 'scheduled'):
+        if len(matches) != 1 or matches[0].get('status') not in ('pending', 'processing', 'published', 'failed', 'cancelled', 'uploading'):
             raise ZernioError('scheduled destination not confirmed')
         return post_id
 

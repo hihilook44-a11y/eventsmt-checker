@@ -215,6 +215,64 @@ def publish_reviewed(snapshot,checkpoint,provider,item,data,proof,verify,project
     reconcile_known_deliveries(snapshot,checkpoint,provider)
     return snapshot['candidate_deliveries'][key]['state']
 
+def recover_uncertain_scheduled(snapshot,checkpoint,provider,verify,now=None):
+    """Recover one recent Zernio timeout with the original idempotency key.
+
+    Zernio's documented 24-hour key window guarantees the same key returns the
+    original post rather than creating a duplicate. The schedule timestamp must be
+    within a conservative 22-hour window: the original job can schedule at most two
+    hours after creating the key. Signed review, exact bytes, media and destination
+    are rechecked before the request is repeated.
+    """
+    if getattr(provider,'name','')!='zernio' or verify is None:
+        return False
+    if not zernio_scheduling_enabled():
+        return False
+    now=now or datetime.now(timezone.utc)
+    if now.tzinfo is None:
+        raise PipelineError('recovery clock must be timezone-aware')
+    now=now.astimezone(timezone.utc)
+    records=snapshot.get('candidate_deliveries',{})
+    for key,record in records.items():
+        if record.get('state')!='delivery_uncertain' or record.get('provider')!='zernio' or record.get('post_id'):
+            continue
+        required=('project','account','media_id','scheduled_for','idempotency_key','sha256')
+        if any(not record.get(field) for field in required):
+            continue
+        try:
+            scheduled=datetime.fromisoformat(str(record['scheduled_for']).replace('Z','+00:00'))
+            if scheduled.tzinfo is None: continue
+            scheduled=scheduled.astimezone(timezone.utc)
+        except (ValueError,TypeError):
+            continue
+        age=now-scheduled
+        if age>=timedelta(hours=22) or age < -timedelta(hours=2):
+            continue
+        if (record['project']!=provider.profile or record['account']!=provider.account or
+            record['idempotency_key']!=stable_idempotency_key(record['account'],key,record['sha256'])):
+            continue
+        pending=[item for item in snapshot.get('state',{}).get('pending',[]) if _key(item)==key]
+        if len(pending)!=1 or key.split(':')[0] in set(map(str,snapshot.get('ledger',{}).get('published_source_ids',[]))):
+            continue
+        if not provider.verify_destination(record['project'],record['account']) or not provider.verify_media(record['project'],record['media_id']):
+            continue
+        item=pending[0]
+        data=get_media(item.get('video_url'))
+        if not isinstance(data,bytes) or hashlib.sha256(data).hexdigest()!=record['sha256']:
+            continue
+        proof=snapshot.get('audio_reviews',{}).get(key)
+        if not verify(item,data,proof):
+            continue
+        text=re.sub(r'https?://\S+','',str(item.get('text') or ''))
+        text=' '.join(text.split())
+        title=(text[:80].strip() or 'أحداث MT')+' | أحداث MT'
+        description=(text+'\nالمصدر: https://x.com/__eventsMT/status/'+key.split(':')[0]).strip()
+        pipeline=CandidatePipeline(snapshot,checkpoint,provider,verify)
+        pipeline.retry_scheduled_idempotently(key,record['account'],title,description,record['scheduled_for'],record['idempotency_key'])
+        return True
+    return False
+
+
 def main():
     f=read_key();s=load_snapshot(f)
     cp=lambda obj:encrypted_git_checkpoint(ROOT.parent,f,obj)
@@ -234,6 +292,10 @@ def main():
     else:
         provider=Provider()
         providers['woopsocial']=provider
+    if zernio_enabled:
+        verifier=review_verifier(os.environ.get('AUDIO_REVIEW_PUBLIC_KEY',''))
+        if recover_uncertain_scheduled(s,cp,provider,verifier):
+            print('Recovered an uncertain scheduled post with its original idempotency key.')
     reconcile_known_deliveries(s,cp,provider,providers)
     if delivery_in_flight(s):
         print('Earlier delivery is unresolved; further publication paused.')
