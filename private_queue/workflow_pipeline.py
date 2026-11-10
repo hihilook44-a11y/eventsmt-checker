@@ -37,31 +37,76 @@ def select_candidate(s):
             return key,item
     return None,None
 
+def _legacy_provider_no_match(name, exc):
+    """Only provider-declared bad-ID/not-found responses permit a read-only fallback."""
+    text=str(exc)
+    if name=='zernio':
+        return 'HTTP 404 not_found' in text or 'HTTP 400 invalid_request_error' in text
+    if name=='woopsocial':
+        return text in {'HTTP 404','HTTP 400'}
+    return False
+
+
+def _resolve_legacy_delivery(record, providers):
+    """Resolve an old record with no provider by exact read-only identity checks."""
+    found=[]
+    for name, candidate in providers.items():
+        try:
+            post=candidate.post(record['post_id'])
+        except Exception as exc:
+            if _legacy_provider_no_match(name, exc):
+                continue
+            raise PipelineError('legacy delivery lookup unavailable') from None
+        if post.get('id') != record['post_id']:
+            raise PipelineError('legacy post identity mismatch')
+        if post.get('projectId') != record.get('project'):
+            raise PipelineError('legacy post identity mismatch')
+        matches=[v for v in post.get('socialAccountPosts',[]) if v.get('socialAccountId') == record.get('account')]
+        if len(matches)!=1:
+            raise PipelineError('legacy post destination mismatch')
+        found.append((name,candidate,post,matches[0]))
+    if len(found)!=1:
+        raise PipelineError('legacy delivery provider unresolved')
+    return found[0]
+
+
 def reconcile_known_deliveries(snapshot,checkpoint,provider,providers=None):
     """Read back known submissions; only confirmed delivery updates the ledger.
 
-    No retry occurs for unknown submission IDs or statuses. Provider/network errors
+    Legacy records without provider metadata are resolved only through read-only
+    provider lookups that match the exact post, project and social account. No retry
+    occurs for unknown submission IDs or statuses. Ambiguity and transport errors
     stop the workflow rather than interpreting them as absence.
     """
     providers=providers or {getattr(provider,'name','woopsocial'):provider}
     for key,record in list(snapshot.get('candidate_deliveries',{}).items()):
         if record.get('state') not in {'delivery_recorded','delivery_uncertain','delivery_scheduled'} or not record.get('post_id'):
             continue
-        selected=providers.get(record.get('provider',getattr(provider,'name','woopsocial')))
-        if selected is None: continue
+        raw_provider=record.get('provider')
+        selected=providers.get(raw_provider) if raw_provider in {'zernio','woopsocial'} else None
+        resolved_legacy=selected is None
+        if resolved_legacy:
+            selected_name,selected,post,row=_resolve_legacy_delivery(record,providers)
+            record['provider']=selected_name
+        else:
+            selected_name=raw_provider
+            post=selected.post(record['post_id'])
+            if post.get('id') != record['post_id'] or post.get('projectId') != record.get('project'):
+                raise PipelineError('post identity mismatch')
+            matches=[v for v in post.get('socialAccountPosts',[]) if v.get('socialAccountId') == record.get('account')]
+            if len(matches)!=1: raise PipelineError('post destination mismatch')
+            row=matches[0]
         pipeline=CandidatePipeline(snapshot,checkpoint,selected)
-        post=selected.post(record['post_id'])
-        if post.get('id') != record['post_id'] or post.get('projectId') != record.get('project'):
-            raise PipelineError('post identity mismatch')
-        matches=[v for v in post.get('socialAccountPosts',[]) if v.get('socialAccountId') == record.get('account')]
-        if len(matches)!=1: raise PipelineError('post destination mismatch')
-        status=matches[0].get('deliveryStatus')
+        status=row.get('deliveryStatus')
         if status=='PUBLISHED':
             pipeline.reconcile_published(key)
-        elif record.get('provider')=='zernio' and status=='SCHEDULED' and record.get('state')!='delivery_scheduled':
+        elif selected_name=='zernio' and status=='SCHEDULED' and record.get('state')!='delivery_scheduled':
             record['state']='delivery_scheduled'; checkpoint(snapshot)
-        elif record.get('provider')=='zernio' and status=='FAILED' and record.get('state')!='delivery_failed':
+        elif selected_name=='zernio' and status=='FAILED' and record.get('state')!='delivery_failed':
             record['state']='delivery_failed'; checkpoint(snapshot)
+        elif resolved_legacy:
+            # Persist the provider only after exact remote identity was established.
+            checkpoint(snapshot)
         # NOT_STARTED, SENDING or unknown stay recorded; never retry.
 
 
