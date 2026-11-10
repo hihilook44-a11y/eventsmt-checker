@@ -326,6 +326,23 @@ def main():
 if __name__=='__main__':
     try:main()
     except Exception as exc:
-        # ZernioError contains only fixed, sanitized diagnostics from its adapter.
-        detail=str(exc) if isinstance(exc,ZernioError) else type(exc).__name__
+        # Only fixed, pre-approved diagnostics are safe to print. In particular,
+        # never surface provider bodies, post text, IDs, URLs or secret values.
+        safe_pipeline_errors={
+            'post identity mismatch', 'post destination mismatch',
+            'publication not established', 'legacy delivery lookup unavailable',
+            'legacy post identity mismatch', 'legacy post destination mismatch',
+            'legacy delivery provider unresolved', 'configured destination unavailable',
+            'saved scheduled attempt does not match recovery',
+            'no uncertain scheduled post to recover',
+            'idempotent recovery outcome unknown',
+            'scheduled post not confirmed', 'scheduled post outcome unknown',
+            'earlier delivery is unresolved',
+        }
+        if isinstance(exc,ZernioError):
+            detail=str(exc)
+        elif isinstance(exc,PipelineError) and str(exc) in safe_pipeline_errors:
+            detail=str(exc)
+        else:
+            detail=type(exc).__name__
         print('Pipeline stopped safely:',detail,file=sys.stderr);sys.exit(1)
