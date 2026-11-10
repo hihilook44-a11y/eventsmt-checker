@@ -4,8 +4,9 @@
 Never creates posts. A record is updated only when every candidate, destination,
 source, media and idempotency key matches the provider's exact post.
 """
-import re
+import re, sys
 from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from secure_scan import read_key, load_snapshot
 from git_checkpoint import encrypted_git_checkpoint
 from zernio_adapter import ZernioProvider, stable_idempotency_key
