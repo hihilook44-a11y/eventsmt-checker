@@ -4,7 +4,7 @@ from candidate_pipeline import PipelineError
 from zernio_adapter import ZernioError
 class P:
  def __init__(self,status):self.status=status;self.calls=[]
- def post(self,id):self.calls.append(id);return {'id':id,'projectId':'p','socialAccountPosts':[{'socialAccountId':'a','deliveryStatus':self.status}]}
+ def post(self,id):self.calls.append(id);return {'id':id,'projectId':'p','socialAccountPosts':[{'socialAccountId':'a','platform':'youtube','deliveryStatus':self.status}]}
 def snapshot():return {'state':{'pending':[]},'ledger':{'published_source_ids':[]},'candidate_deliveries':{'12:34':{'state':'delivery_recorded','post_id':'post','project':'p','account':'a'}}}
 
 class NoMatchP:
@@ -38,6 +38,14 @@ class Tests(unittest.TestCase):
   self.assertEqual(s['ledger']['published_source_ids'],[])
   self.assertFalse(delivery_in_flight(s))
   self.assertEqual(p.calls,['post']);self.assertEqual(writes,[1])
+ def test_zernio_wrong_platform_readback_stays_blocked(self):
+  s=snapshot();s['candidate_deliveries']['12:34']['provider']='zernio';writes=[];p=P('SCHEDULED')
+  p.post=lambda id:{'id':id,'projectId':'p','socialAccountPosts':[{'socialAccountId':'a','platform':'instagram','deliveryStatus':'SCHEDULED'}]}
+  with self.assertRaisesRegex(PipelineError,'destination mismatch'):
+   reconcile_known_deliveries(s,lambda state:writes.append(1),p,{'zernio':p})
+  self.assertEqual(s['candidate_deliveries']['12:34']['state'],'delivery_recorded')
+  self.assertEqual(s['ledger']['published_source_ids'],[])
+  self.assertEqual(writes,[])
  def test_zernio_scheduled_receipt_is_checkpointed(self):
   s=snapshot();s['candidate_deliveries']['12:34']['provider']='zernio';writes=[];p=P('SCHEDULED')
   reconcile_known_deliveries(s,lambda s:writes.append(1),p,{'zernio':p})

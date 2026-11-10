@@ -80,11 +80,13 @@ class ZernioAdapterTests(unittest.TestCase):
         self.p._api=lambda *a,**k:{'post':{'_id':'post-1','status':'published','platforms':[{'platform':'youtube','accountId':ACCOUNT,'status':'published'}]}}
         self.assertEqual(self.p.publish_scheduled(ACCOUNT,'title','description','https://media.zernio.com/temp/v.mp4','2026-11-10T11:00:00Z','key'),'post-1')
 
-    def test_unknown_status_and_wrong_destination_are_rejected(self):
+    def test_create_response_id_is_checkpointable_without_platform_rows(self):
+        self.p._api=lambda *a,**k:{'post':{'_id':'post-1','status':'scheduled'}}
+        self.assertEqual(self.p.publish_scheduled(ACCOUNT,'title','description','https://media.zernio.com/temp/v.mp4','2026-11-10T11:00:00Z','key'),'post-1')
+
+    def test_unknown_overall_status_is_rejected(self):
         media='https://media.zernio.com/temp/v.mp4'
         self.p._api=lambda *a,**k:{'post':{'_id':'post-1','status':'queued','platforms':[{'platform':'youtube','accountId':ACCOUNT,'status':'pending'}]}}
-        with self.assertRaises(ZernioError): self.p.publish_scheduled(ACCOUNT,'title','description',media,'2026-11-10T11:00:00Z','key')
-        self.p._api=lambda *a,**k:{'post':{'_id':'post-1','status':'scheduled','platforms':[{'platform':'youtube','accountId':'wrong-account','status':'pending'}]}}
         with self.assertRaises(ZernioError): self.p.publish_scheduled(ACCOUNT,'title','description',media,'2026-11-10T11:00:00Z','key')
 
     def test_post_normalizes_scheduled_and_published_for_pipeline(self):
@@ -93,6 +95,7 @@ class ZernioAdapterTests(unittest.TestCase):
         self.assertEqual(post['id'],'p')
         self.assertEqual(post['projectId'],PROFILE)
         self.assertEqual(post['socialAccountPosts'][0]['deliveryStatus'],'SCHEDULED')
+        self.assertEqual(post['socialAccountPosts'][0]['platform'],'youtube')
         self.p._api=lambda *a,**k:{'post':{'_id':'p','status':'published','platforms':[{'platform':'youtube','accountId':ACCOUNT,'status':'published','platformPostUrl':'https://youtube.com/watch?v=x'}]}}
         post=self.p.post('p')
         self.assertEqual(post['socialAccountPosts'][0]['deliveryStatus'],'PUBLISHED')

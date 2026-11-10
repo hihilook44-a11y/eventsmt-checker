@@ -152,16 +152,13 @@ class ZernioProvider:
         result = self._api('POST', '/posts', payload, {'Idempotency-Key': idempotency_key})
         post = result.get('post') if isinstance(result, dict) else None
         post_id = post.get('_id') if isinstance(post, dict) else None
-        # Zernio may return a processing or published platform result even when a
-        # scheduledFor value was supplied. The durable post ID plus the exact target
-        # account/platform establish which logical request was accepted; read-back
-        # reconciliation decides whether it is scheduled, published or failed.
-        if not post_id or post.get('status') not in ('scheduled', 'publishing', 'published', 'partial', 'failed'):
+        # The create response may omit or incompletely populate platform targets.
+        # Persist its durable ID only; workflow reconciliation immediately GETs that
+        # ID and independently verifies the configured YouTube account before it
+        # records a schedule or publication. An absent/mismatched read-back remains
+        # unresolved and blocks any different delivery.
+        if not isinstance(post_id, str) or not post_id or post.get('status') not in ('scheduled', 'publishing', 'published', 'partial', 'failed'):
             raise ZernioError('scheduled post not confirmed')
-        matches = [p for p in post.get('platforms', []) if p.get('accountId') == account and p.get('platform') == 'youtube']
-        destination_status = str(matches[0].get('status', '')).strip().lower() if len(matches) == 1 else ''
-        if len(matches) != 1 or destination_status not in ('scheduled', 'pending', 'processing', 'published', 'failed', 'cancelled', 'uploading'):
-            raise ZernioError('scheduled destination not confirmed')
         return post_id
 
     def post(self, post_id):
@@ -176,6 +173,7 @@ class ZernioProvider:
         for platform in post.get('platforms', []):
             rows.append({
                 'socialAccountId': platform.get('accountId'),
+                'platform': platform.get('platform'),
                 'deliveryStatus': statuses.get(str(platform.get('status', '')).lower(), 'OTHER'),
                 'externalPostId': platform.get('platformPostId'),
                 'externalPostUrl': platform.get('platformPostUrl'),
@@ -183,7 +181,7 @@ class ZernioProvider:
         # Normalize only the documented provider fields; expected profile is the
         # scope enforced by this key and configured target, not a claimed API field.
         return {'id': post_id, 'projectId': self.profile,
-                'schedule': {'type': 'SCHEDULED' if post.get('status') == 'scheduled' else post.get('status', '').upper()},
+                'schedule': {'type': 'SCHEDULED' if str(post.get('status', '')).lower() == 'scheduled' else str(post.get('status', '')).upper()},
                 'socialAccountPosts': rows}
 
 

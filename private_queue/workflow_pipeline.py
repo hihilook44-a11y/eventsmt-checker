@@ -61,7 +61,7 @@ def _resolve_legacy_delivery(record, providers):
             raise PipelineError('legacy post identity mismatch')
         if post.get('projectId') != record.get('project'):
             raise PipelineError('legacy post identity mismatch')
-        matches=[v for v in post.get('socialAccountPosts',[]) if v.get('socialAccountId') == record.get('account')]
+        matches=[v for v in post.get('socialAccountPosts',[]) if v.get('socialAccountId') == record.get('account') and (name != 'zernio' or v.get('platform') == 'youtube')]
         if len(matches)!=1:
             raise PipelineError('legacy post destination mismatch')
         found.append((name,candidate,post,matches[0]))
@@ -93,7 +93,7 @@ def reconcile_known_deliveries(snapshot,checkpoint,provider,providers=None):
             post=selected.post(record['post_id'])
             if post.get('id') != record['post_id'] or post.get('projectId') != record.get('project'):
                 raise PipelineError('post identity mismatch')
-            matches=[v for v in post.get('socialAccountPosts',[]) if v.get('socialAccountId') == record.get('account')]
+            matches=[v for v in post.get('socialAccountPosts',[]) if v.get('socialAccountId') == record.get('account') and (selected_name != 'zernio' or v.get('platform') == 'youtube')]
             if len(matches)!=1: raise PipelineError('post destination mismatch')
             row=matches[0]
         pipeline=CandidatePipeline(snapshot,checkpoint,selected)
