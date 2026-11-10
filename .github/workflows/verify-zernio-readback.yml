@@ -1,0 +1,42 @@
+name: Verify Zernio post readback (read only)
+on:
+  workflow_dispatch:
+    inputs:
+      post_id:
+        description: Existing Zernio post ID to inspect (no post is created)
+        required: true
+        type: string
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Confirm exact YouTube destination by readback
+        env:
+          ZERNIO_API_KEY: ${{ secrets.ZERNIO_API_KEY }}
+          ZERNIO_PROFILE_ID: ${{ secrets.ZERNIO_PROFILE_ID }}
+          ZERNIO_YOUTUBE_ACCOUNT_ID: ${{ secrets.ZERNIO_YOUTUBE_ACCOUNT_ID }}
+          VERIFY_POST_ID: ${{ inputs.post_id }}
+        run: |
+          python - <<'PY'
+          import os
+          from zernio_adapter import ZernioProvider
+          p = ZernioProvider()
+          if not p.verify_destination(p.profile, p.account):
+              raise SystemExit('Configured YouTube destination did not match')
+          result = p.post(os.environ['VERIFY_POST_ID'])
+          matches = [row for row in result['socialAccountPosts']
+                     if row.get('platform') == 'youtube'
+                     and row.get('socialAccountId') == p.account]
+          if len(matches) != 1 or matches[0].get('deliveryStatus') not in {'PUBLISHED', 'SCHEDULED'}:
+              raise SystemExit('Exact YouTube target or delivery state was not confirmed')
+          print('Read-only post check: exact YouTube account confirmed; state:', matches[0]['deliveryStatus'])
+          PY

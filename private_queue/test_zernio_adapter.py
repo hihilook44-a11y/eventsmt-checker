@@ -4,6 +4,7 @@ import sys
 import unittest
 from pathlib import Path
 from urllib.error import HTTPError
+from urllib.parse import parse_qs
 sys.path.insert(0,str(Path(__file__).resolve().parent.parent))
 from zernio_adapter import ZernioProvider, ZernioError, stable_idempotency_key
 
@@ -88,6 +89,43 @@ class ZernioAdapterTests(unittest.TestCase):
         media='https://media.zernio.com/temp/v.mp4'
         self.p._api=lambda *a,**k:{'post':{'_id':'post-1','status':'queued','platforms':[{'platform':'youtube','accountId':ACCOUNT,'status':'pending'}]}}
         with self.assertRaises(ZernioError): self.p.publish_scheduled(ACCOUNT,'title','description',media,'2026-11-10T11:00:00Z','key')
+
+    def test_post_uses_exact_account_scoped_analytics_when_get_omits_account_id(self):
+        calls=[]
+        def api(method,path,payload=None,headers=None):
+            calls.append((method,path))
+            if path == '/posts/p':
+                return {'post':{'_id':'p','status':'published','platforms':[{'platform':'youtube','status':'published'}]}}
+            return {'postId':'p','latePostId':'p','status':'published',
+                    'platformAnalytics':[{'platform':'youtube','status':'published','accountId':ACCOUNT,
+                                          'platformPostId':'youtube-id'}]}
+        self.p._api=api
+        post=self.p.post('p')
+        matched=[row for row in post['socialAccountPosts'] if row.get('socialAccountId')==ACCOUNT]
+        self.assertEqual(len(matched),1)
+        self.assertEqual(matched[0]['deliveryStatus'],'PUBLISHED')
+        query=parse_qs(calls[1][1].split('?',1)[1])
+        self.assertEqual(query,{'postId':['p'],'profileId':[PROFILE],'accountId':[ACCOUNT],
+                                'platform':['youtube'],'source':['late']})
+
+    def test_post_never_overrides_explicit_other_youtube_account(self):
+        calls=[]
+        def api(method,path,payload=None,headers=None):
+            calls.append(path)
+            return {'post':{'_id':'p','status':'published','platforms':[{'platform':'youtube','accountId':'other','status':'published'}]}}
+        self.p._api=api
+        with self.assertRaisesRegex(ZernioError,'post target mismatch'):
+            self.p.post('p')
+        self.assertEqual(calls,['/posts/p'])
+
+    def test_post_analytics_fallback_requires_exact_post_and_account(self):
+        def api(method,path,payload=None,headers=None):
+            if path == '/posts/p': return {'post':{'_id':'p','status':'published','platforms':[]}}
+            return {'postId':'another-post','latePostId':'p',
+                    'platformAnalytics':[{'platform':'youtube','status':'published','accountId':'other'}]}
+        self.p._api=api
+        with self.assertRaisesRegex(ZernioError,'post analytics target mismatch'):
+            self.p.post('p')
 
     def test_post_normalizes_scheduled_and_published_for_pipeline(self):
         self.p._api=lambda *a,**k:{'post':{'_id':'p','status':'scheduled','platforms':[{'platform':'youtube','accountId':ACCOUNT,'status':'pending'}]}}

@@ -89,7 +89,12 @@ class ZernioProvider:
         else:
             endpoint = 'API'
         try:
-            accepted=(200, 201, 202, 207) if clean_path == '/posts' and method == 'POST' else (200, 201)
+            if clean_path == '/posts' and method == 'POST':
+                accepted=(200, 201, 202, 207)
+            elif clean_path == '/analytics' and method == 'GET':
+                accepted=(200, 202)
+            else:
+                accepted=(200, 201)
             _, result = self._request(method, BASE + path, body, 'application/json' if body is not None else None, headers, accepted=accepted)
         except ZernioError as exc:
             # Include only a fixed endpoint label and sanitized error, never query, IDs,
@@ -169,8 +174,15 @@ class ZernioProvider:
         statuses = {'published': 'PUBLISHED', 'scheduled': 'SCHEDULED', 'pending': 'SCHEDULED',
                     'publishing': 'SENDING', 'processing': 'SENDING', 'failed': 'FAILED',
                     'cancelled': 'FAILED', 'uploading': 'SENDING'}
+        platforms = post.get('platforms', [])
+        if not isinstance(platforms, list):
+            raise ZernioError('post target list unavailable')
+        youtube_rows = [row for row in platforms if isinstance(row, dict)
+                        and str(row.get('platform', '')).lower() == 'youtube']
         rows = []
-        for platform in post.get('platforms', []):
+        for platform in platforms:
+            if not isinstance(platform, dict):
+                continue
             rows.append({
                 'socialAccountId': platform.get('accountId'),
                 'platform': platform.get('platform'),
@@ -178,8 +190,40 @@ class ZernioProvider:
                 'externalPostId': platform.get('platformPostId'),
                 'externalPostUrl': platform.get('platformPostUrl'),
             })
-        # Normalize only the documented provider fields; expected profile is the
-        # scope enforced by this key and configured target, not a claimed API field.
+        exact_targets = [row for row in rows if row.get('platform') == 'youtube'
+                         and row.get('socialAccountId') == self.account]
+        if len(exact_targets) > 1:
+            raise ZernioError('post target ambiguous')
+        if not exact_targets:
+            # Some post read-backs omit expanded account ids. Confirm via the
+            # documented analytics read, constrained to this exact post, profile,
+            # YouTube account and Zernio-created posts. Never override a conflicting
+            # explicit YouTube account from the post response.
+            if any(row.get('accountId') not in (None, '') for row in youtube_rows):
+                raise ZernioError('post target mismatch')
+            query = urllib.parse.urlencode({
+                'postId': post_id, 'profileId': self.profile, 'accountId': self.account,
+                'platform': 'youtube', 'source': 'late'
+            })
+            analytics = self._api('GET', '/analytics?' + query)
+            if not isinstance(analytics, dict) or post_id not in (analytics.get('postId'), analytics.get('latePostId')):
+                raise ZernioError('post analytics identity mismatch')
+            analytics_rows = analytics.get('platformAnalytics')
+            if not isinstance(analytics_rows, list):
+                raise ZernioError('post analytics target unavailable')
+            confirmed = [row for row in analytics_rows if isinstance(row, dict)
+                         and str(row.get('platform', '')).lower() == 'youtube'
+                         and row.get('accountId') == self.account]
+            if len(confirmed) != 1:
+                raise ZernioError('post analytics target mismatch')
+            analytics_status = statuses.get(str(confirmed[0].get('status', '')).lower())
+            if analytics_status:
+                rows.append({'socialAccountId': self.account, 'platform': 'youtube',
+                             'deliveryStatus': analytics_status,
+                             'externalPostId': confirmed[0].get('platformPostId'),
+                             'externalPostUrl': confirmed[0].get('platformPostUrl')})
+        # Normalize only documented fields; profile is the scope enforced by
+        # this key and configured target, not a claimed API field.
         return {'id': post_id, 'projectId': self.profile,
                 'schedule': {'type': 'SCHEDULED' if str(post.get('status', '')).lower() == 'scheduled' else str(post.get('status', '')).upper()},
                 'socialAccountPosts': rows}
