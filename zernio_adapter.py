@@ -68,7 +68,21 @@ class ZernioProvider:
         if not path.startswith('/') or path.startswith('//') or '\r' in path or '\n' in path:
             raise ValueError('invalid path')
         body = None if payload is None else json.dumps(payload, ensure_ascii=False).encode('utf-8')
-        _, result = self._request(method, BASE + path, body, 'application/json' if body is not None else None, headers)
+        clean_path = path.split('?', 1)[0]
+        if clean_path == '/accounts':
+            endpoint = 'accounts'
+        elif clean_path == '/media/presign':
+            endpoint = 'media/presign'
+        elif clean_path == '/posts' or clean_path.startswith('/posts/'):
+            endpoint = 'posts'
+        else:
+            endpoint = 'API'
+        try:
+            _, result = self._request(method, BASE + path, body, 'application/json' if body is not None else None, headers)
+        except ZernioError as exc:
+            # Include only a fixed endpoint label and sanitized error, never query, IDs,
+            # provider bodies, credentials, or signed URLs.
+            raise ZernioError(f'{method} {endpoint}: {exc}') from None
         return result
 
     def verify_destination(self, profile, account):

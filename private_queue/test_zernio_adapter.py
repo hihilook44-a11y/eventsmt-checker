@@ -20,6 +20,14 @@ class ZernioAdapterTests(unittest.TestCase):
         self.p._api=lambda *a,**k:{'accounts':[{'_id':ACCOUNT,'platform':'youtube','status':'disconnected'}]}
         self.assertFalse(self.p.verify_destination(PROFILE,ACCOUNT))
 
+    def test_api_error_reports_fixed_endpoint_without_query(self):
+        def fail(*args, **kwargs):
+            raise ZernioError('HTTP 403')
+        self.p._request=fail
+        with self.assertRaisesRegex(ZernioError, 'GET accounts: HTTP 403') as caught:
+            self.p._api('GET','/accounts?profileId=private-profile')
+        self.assertNotIn('private-profile',str(caught.exception))
+
     def test_schedule_payload_is_idempotent_public_youtube(self):
         def api(method,path,payload=None,headers=None):
             self.calls.append((method,path,payload,headers))

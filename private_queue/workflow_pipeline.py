@@ -194,4 +194,6 @@ def main():
 if __name__=='__main__':
     try:main()
     except Exception as exc:
-        print('Pipeline stopped safely:',type(exc).__name__,file=sys.stderr);sys.exit(1)
+        # ZernioError contains only fixed, sanitized diagnostics from its adapter.
+        detail=str(exc) if isinstance(exc,ZernioError) else type(exc).__name__
+        print('Pipeline stopped safely:',detail,file=sys.stderr);sys.exit(1)
