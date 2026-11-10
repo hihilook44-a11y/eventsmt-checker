@@ -39,6 +39,24 @@ def match_record(snapshot, provider, raw):
         from urllib.parse import urlsplit
         saved=record.get('media_id')
         print('Media comparison:', {'items':len(media),'item_fields':sorted(media[0].keys()) if media and isinstance(media[0],dict) else [], 'saved_type':type(saved).__name__, 'saved_host':urlsplit(saved).hostname if isinstance(saved,str) else None, 'post_host':urlsplit(media[0].get('url','')).hostname if media and isinstance(media[0],dict) else None, 'same_path':bool(media and isinstance(saved,str) and isinstance(media[0],dict) and urlsplit(saved).path==urlsplit(media[0].get('url','')).path)}, flush=True)
+        import hashlib, urllib.request
+        def digest(url):
+            u=urlsplit(url)
+            if u.scheme!='https' or u.hostname!='media.zernio.com': return None
+            try:
+                h=hashlib.sha256(); total=0
+                with urllib.request.urlopen(url,timeout=20) as response:
+                    while True:
+                        chunk=response.read(1048576)
+                        if not chunk: break
+                        total+=len(chunk)
+                        if total>500_000_000: return None
+                        h.update(chunk)
+                return h.hexdigest(),total
+            except Exception: return None
+        old=digest(saved) if isinstance(saved,str) else None
+        new=digest(media[0].get('url','')) if media and isinstance(media[0],dict) else None
+        print('Media bytes comparison:', {'saved_readable':old is not None,'post_readable':new is not None,'same_bytes':bool(old and new and old==new),'saved_matches_review':bool(old and old[0]==record.get('sha256')),'post_matches_review':bool(new and new[0]==record.get('sha256'))}, flush=True)
         raise ValueError('media mismatch')
     platforms=[p for p in post.get('platforms',[]) if p.get('accountId')==provider.account and p.get('platform')=='youtube']
     if len(platforms)!=1 or platforms[0].get('status')!='published' or not platforms[0].get('platformPostId'):
