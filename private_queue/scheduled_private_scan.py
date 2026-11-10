@@ -13,20 +13,57 @@ from incremental_queue import transition, atomic_write
 ROOT=Path(__file__).resolve().parent
 
 def apply_scan(scan, ledger, old, started_at):
-    if not isinstance(old,dict) or not isinstance(old.get('baseline_epoch'),(float,int)):
+    if not isinstance(old,dict) or not isinstance(old.get('baseline_epoch'),(float,int)) or isinstance(old.get('baseline_epoch'),bool):
         raise ValueError('Existing private baseline required')
-    if scan.get('errors') or not scan.get('pages'):
+    if not isinstance(scan,dict) or not isinstance(scan.get('pages'),list) or not scan['pages']:
         raise ValueError('Source scan failed')
     # Initialization deliberately scans as far back as the old queue baseline;
     # subsequent checks must reach the start of the previous successful scan.
     cutoff=old.get('last_successful_scan_epoch',old['baseline_epoch'])
-    if not isinstance(cutoff,(float,int)) or cutoff > started_at:
+    if not isinstance(cutoff,(float,int)) or isinstance(cutoff,bool) or not isinstance(started_at,(float,int)) or started_at < cutoff:
         raise ValueError('Invalid discovery checkpoint')
-    all_timestamps=[t for page in scan['pages'] for t in page.get('timestamps',[])]
-    if not scan.get('end_of_timeline_seen') and (not all_timestamps or min(all_timestamps)>cutoff):
+    page_numbers=[]; all_timestamps=[]
+    for page in scan['pages']:
+        if not isinstance(page,dict) or not isinstance(page.get('timestamps'),list):
+            raise ValueError('Invalid page evidence')
+        page_number=page.get('page')
+        if not isinstance(page_number,int) or isinstance(page_number,bool):
+            raise ValueError('Invalid page sequence')
+        page_numbers.append(page_number)
+        all_timestamps.extend(t for t in page['timestamps']
+                              if isinstance(t,(int,float)) and not isinstance(t,bool))
+    if page_numbers != list(range(1,len(page_numbers)+1)):
+        raise ValueError('Non-contiguous page sequence')
+    if not all_timestamps or min(all_timestamps)>cutoff:
         raise ValueError('Insufficient page coverage to reach prior checkpoint')
-    state,counts=transition(scan,ledger,old)
-    state['last_successful_scan_epoch']=started_at
+
+    errors=scan.get('errors') or []
+    partial=bool(errors)
+    if partial:
+        # Only a single page-fetch failure immediately after contiguous pages is
+        # recoverable, and only after their timestamps overlap the old checkpoint.
+        # Cursor loops, malformed results and other errors remain fail-closed.
+        if len(errors)!=1 or not scan.get('next_cursor_available'):
+            raise ValueError('Non-recoverable source scan error')
+        match=re.fullmatch(r'Page (\d+): (?:HTTPError|URLError|TimeoutError|ConnectionError|RemoteDisconnected|OSError): .*',str(errors[0]))
+        if not match or int(match.group(1))!=page_numbers[-1]+1:
+            raise ValueError('Non-recoverable source scan error')
+
+    # The queue transition rejects all errors by design. After the checks above,
+    # this is a deliberately bounded partial batch, not a claim of full coverage.
+    accepted_scan=copy.deepcopy(scan)
+    accepted_scan['errors']=[]
+    state,counts=transition(accepted_scan,ledger,old)
+    if partial:
+        # Do not advance beyond the checkpoint actually reached. Re-scanning this
+        # overlap next time is safe; deduplication prevents duplicate queue items.
+        state['last_successful_scan_epoch']=cutoff
+        state['last_partial_scan_epoch']=started_at
+    else:
+        state['last_successful_scan_epoch']=started_at
+        state.pop('last_partial_scan_epoch',None)
+    counts['partial_scan']=partial
+    counts['checkpoint_advanced']=not partial
     return state,counts
 
 def main():
@@ -38,7 +75,10 @@ def main():
         os.chmod(str(statepath)+'.lock',0o600);fcntl.flock(lock,fcntl.LOCK_EX)
         old=json.loads(statepath.read_text(encoding='utf-8'));ledger=json.loads(ledgerpath.read_text(encoding='utf-8'))
         started_at=int(time.time()); reasons=[]
-        for endpoint,count,pages in (("media",100,a.max_pages),("media",50,a.max_pages),("statuses",100,min(20,a.max_pages * 4))):
+        # The public /media route has recently returned intermittent 404/500s,
+        # while /statuses is currently serving video posts reliably. Prefer the
+        # broader timeline and retain strict overlap checks before advancing state.
+        for endpoint,count,pages in (("statuses",100,min(20,a.max_pages * 4)),("media",100,a.max_pages),("media",50,a.max_pages)):
             scan=run(pages,count,endpoint)
             try:
                 updated,stats=apply_scan(scan,ledger,old,started_at)

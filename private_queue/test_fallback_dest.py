@@ -21,19 +21,33 @@ class T(unittest.TestCase):
 if __name__=='__main__':unittest.main()
 
 class FallbackScan(unittest.TestCase):
- def test_media_failure_then_statuses_validates_before_update(self):
+ def test_statuses_endpoint_first_validates_before_update(self):
   import json, tempfile, sys
   from pathlib import Path
   import scheduled_private_scan as m
-  failed={'errors':['Page 1: HTTPError: HTTP Error 404: X'],'pages':[]}
-  ok={'errors':[],'pages':[{'timestamps':[100]}], 'end_of_timeline_seen':False,'candidates':[],'next_cursor_available':False}
+  ok={'errors':[],'pages':[{'page':1,'timestamps':[100]}], 'end_of_timeline_seen':False,'candidates':[],'next_cursor_available':False}
   with tempfile.TemporaryDirectory() as d:
    a=Path(d)/'state.json'; b=Path(d)/'ledger.json'
    original={'version':1,'baseline_epoch':100,'last_successful_scan_epoch':100,'seen_keys':[],'pending':[]}
    a.write_text(json.dumps(original));b.write_text('{"published_source_ids": []}')
-   with patch.object(sys,'argv',['scan','--state',str(a),'--ledger',str(b)]),patch.object(m,'run',side_effect=[failed,failed,ok]) as scan,patch.object(m.time,'time',return_value=200):
+   with patch.object(sys,'argv',['scan','--state',str(a),'--ledger',str(b)]),patch.object(m,'run',return_value=ok) as scan,patch.object(m.time,'time',return_value=200):
     self.assertEqual(m.main(),0)
-    self.assertEqual(scan.call_args_list[-1].args,(20,100,'statuses'))
+    self.assertEqual(scan.call_args_list[0].args,(20,100,'statuses'))
+    self.assertEqual(json.loads(a.read_text())['last_successful_scan_epoch'],200)
+ def test_media_fallback_after_statuses_failure(self):
+  import json, tempfile, sys
+  from pathlib import Path
+  import scheduled_private_scan as m
+  failed={'errors':['Page 1: HTTPError: HTTP Error 404: X'],'pages':[]}
+  ok={'errors':[],'pages':[{'page':1,'timestamps':[100]}], 'end_of_timeline_seen':False,'candidates':[],'next_cursor_available':False}
+  with tempfile.TemporaryDirectory() as d:
+   a=Path(d)/'state.json'; b=Path(d)/'ledger.json'
+   original={'version':1,'baseline_epoch':100,'last_successful_scan_epoch':100,'seen_keys':[],'pending':[]}
+   a.write_text(json.dumps(original));b.write_text('{"published_source_ids": []}')
+   with patch.object(sys,'argv',['scan','--state',str(a),'--ledger',str(b)]),patch.object(m,'run',side_effect=[failed,ok]) as scan,patch.object(m.time,'time',return_value=200):
+    self.assertEqual(m.main(),0)
+    self.assertEqual(scan.call_args_list[0].args,(20,100,'statuses'))
+    self.assertEqual(scan.call_args_list[1].args,(5,100,'media'))
     self.assertEqual(json.loads(a.read_text())['last_successful_scan_epoch'],200)
  def test_all_fail_preserves_state(self):
   import json, tempfile, sys
@@ -44,3 +58,46 @@ class FallbackScan(unittest.TestCase):
    a.write_text(orig);b.write_text('{"published_source_ids": []}')
    with patch.object(sys,'argv',['scan','--state',str(a),'--ledger',str(b)]),patch.object(m,'run',return_value={'errors':['failed'],'pages':[]}):self.assertEqual(m.main(),2)
    self.assertEqual(a.read_text(),orig)
+
+ def test_partial_transport_failure_after_overlap_keeps_checkpoint(self):
+  import scheduled_private_scan as m
+  old={'version':1,'baseline_epoch':50,'last_successful_scan_epoch':100,'seen_keys':[],'pending':[]}
+  scan={'errors':['Page 3: HTTPError: HTTP Error 404: Not Found'],
+        'pages':[{'page':1,'timestamps':[180,160]},{'page':2,'timestamps':[130,100]}],
+        'end_of_timeline_seen':False,'candidates':[],'next_cursor_available':True}
+  state,stats=m.apply_scan(scan,{'published_source_ids':[]},old,200)
+  self.assertTrue(stats['partial_scan']);self.assertFalse(stats['checkpoint_advanced'])
+  self.assertEqual(state['last_successful_scan_epoch'],100)
+  self.assertEqual(state['last_partial_scan_epoch'],200)
+ def test_partial_scan_without_overlap_is_rejected(self):
+  import scheduled_private_scan as m
+  old={'version':1,'baseline_epoch':50,'last_successful_scan_epoch':100,'seen_keys':[],'pending':[]}
+  scan={'errors':['Page 3: HTTPError: HTTP Error 404: Not Found'],
+        'pages':[{'page':1,'timestamps':[180]},{'page':2,'timestamps':[130]}],
+        'end_of_timeline_seen':False,'candidates':[],'next_cursor_available':True}
+  with self.assertRaisesRegex(ValueError,'coverage'):
+   m.apply_scan(scan,{'published_source_ids':[]},old,200)
+ def test_cursor_loop_is_not_accepted_as_partial(self):
+  import scheduled_private_scan as m
+  old={'version':1,'baseline_epoch':50,'last_successful_scan_epoch':100,'seen_keys':[],'pending':[]}
+  scan={'errors':['Repeated pagination cursor; stopped to avoid a loop'],
+        'pages':[{'page':1,'timestamps':[180,100]}],
+        'end_of_timeline_seen':False,'candidates':[],'next_cursor_available':True}
+  with self.assertRaisesRegex(ValueError,'Non-recoverable'):
+   m.apply_scan(scan,{'published_source_ids':[]},old,200)
+ def test_partial_main_records_checkpoint_not_advanced(self):
+  import json, tempfile, sys
+  from pathlib import Path
+  import scheduled_private_scan as m
+  partial={'errors':['Page 3: HTTPError: HTTP Error 404: Not Found'],
+           'pages':[{'page':1,'timestamps':[180,160]},{'page':2,'timestamps':[130,100]}],
+           'end_of_timeline_seen':False,'candidates':[],'next_cursor_available':True}
+  with tempfile.TemporaryDirectory() as d:
+   a=Path(d)/'state.json';b=Path(d)/'ledger.json'
+   original={'version':1,'baseline_epoch':50,'last_successful_scan_epoch':100,'seen_keys':[],'pending':[]}
+   a.write_text(json.dumps(original));b.write_text('{"published_source_ids": []}')
+   with patch.object(sys,'argv',['scan','--state',str(a),'--ledger',str(b)]),patch.object(m,'run',return_value=partial),patch.object(m.time,'time',return_value=200):
+    self.assertEqual(m.main(),0)
+   saved=json.loads(a.read_text())
+   self.assertEqual(saved['last_successful_scan_epoch'],100)
+   self.assertEqual(saved['last_partial_scan_epoch'],200)

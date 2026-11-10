@@ -7,6 +7,8 @@ from cryptography.fernet import Fernet, InvalidToken
 ROOT=Path(__file__).resolve().parent
 ENCRYPTED=ROOT/'queue.enc'
 KEY_ENV='PRIVATE_QUEUE_FERNET_KEY'
+SUMMARY_FIELDS=('new_candidates','pending_total','pages_checked','page_size','more_pages_available',
+                'audio_verified','publication_performed','partial_scan','checkpoint_advanced')
 
 def read_key():
     key=os.environ.get(KEY_ENV,'').encode('ascii')
@@ -43,7 +45,7 @@ def scan():
             # Whitelist diagnostics: do not expose URLs, text, identifiers, or secrets.
             try:
                 response=json.loads(proc.stdout)
-                known=('Source scan failed','Insufficient page coverage to reach prior checkpoint','Invalid discovery checkpoint','Existing private baseline required')
+                known=('Source scan failed','Insufficient page coverage to reach prior checkpoint','Invalid discovery checkpoint','Existing private baseline required','Non-recoverable source scan error','Invalid page evidence','Invalid page sequence','Non-contiguous page sequence')
                 reasons=[name for name in known if any(name in item for item in response.get('reasons',[]) if isinstance(item,str))]
                 reasons += [item for item in response.get('reasons',[]) if isinstance(item,str) and re.fullmatch(r'page=\d+ http=\d{3}',item)]
             except (ValueError,TypeError,AttributeError): reasons=[]
@@ -54,7 +56,7 @@ def scan():
         if not isinstance(updated.get('pending'),list): raise RuntimeError('invalid scanner output')
         snapshot['state']=updated
         write_encrypted(f,snapshot)
-        print(json.dumps({k:result.get(k) for k in ('new_candidates','pending_total','pages_checked','page_size','more_pages_available','audio_verified','publication_performed')}))
+        print(json.dumps({k:result.get(k) for k in SUMMARY_FIELDS}))
     return 0
 if __name__=='__main__':
     try: raise SystemExit(scan())
