@@ -51,6 +51,7 @@ jobs:
           python -m unittest discover -s private_queue -p 'test_reviewed_delivery.py' -v
           python -m unittest discover -s private_queue -p 'test_review_intake.py' -v
           python -m unittest discover -s private_queue -p 'test_fallback_dest.py' -v
+          python -m unittest discover -s private_queue -p 'test_zernio_*.py' -v
       - name: Process candidate with signed audio review gate
         # Reviewed exact bytes only; unresolved earlier writes block subsequent posts.
         env:
@@ -59,6 +60,11 @@ jobs:
           AUDIO_REVIEW_PUBLIC_KEY: ${{ secrets.AUDIO_REVIEW_PUBLIC_KEY }}
           WOOPSOCIAL_PROJECT_ID: ${{ secrets.WOOPSOCIAL_PROJECT_ID }}
           WOOPSOCIAL_YOUTUBE_ACCOUNT_ID: ${{ secrets.WOOPSOCIAL_YOUTUBE_ACCOUNT_ID }}
+          ZERNIO_SCHEDULED_PUBLISHING_ENABLED: 'false'
+          ZERNIO_API_KEY: ${{ secrets.ZERNIO_API_KEY }}
+          ZERNIO_PROFILE_ID: ${{ secrets.ZERNIO_PROFILE_ID }}
+          ZERNIO_YOUTUBE_ACCOUNT_ID: ${{ secrets.ZERNIO_YOUTUBE_ACCOUNT_ID }}
+          ZERNIO_SCHEDULE_DELAY_MINUTES: '15'
         run: python private_queue/workflow_pipeline.py
       - name: Prepare candidate for audio review
         env:

@@ -79,7 +79,7 @@ class CandidatePipeline:
             raise PipelineError('authenticated complete audio review required')
         if not project: raise PipelineError('missing project')
         # This durable checkpoint MUST succeed before invoking the remote write.
-        r.update(state='upload_uncertain',project=project)
+        r.update(state='upload_uncertain',project=project,provider=getattr(self.provider,'name','woopsocial'))
         self._checkpoint()
         media=self.provider.upload(project,data)
         if not isinstance(media,str) or not media: raise PipelineError('upload outcome unknown')
@@ -93,9 +93,12 @@ class CandidatePipeline:
         if r['state']!='upload_complete': raise PipelineError('state blocks draft or retry')
         if not account or not title: raise PipelineError('missing destination or title')
         q=urllib.parse.urlencode({'projectId':r['project'],'mediaId':r['media_id']})
-        result=self.provider.call('GET','/media?'+q)
-        if not any(m.get('id')==r['media_id'] and m.get('projectId')==r['project'] for m in result.get('media',[])):
-            raise PipelineError('uploaded media not verified')
+        if hasattr(self.provider,'verify_media'):
+            valid=self.provider.verify_media(r['project'],r['media_id'])
+        else:
+            result=self.provider.call('GET','/media?'+q)
+            valid=any(m.get('id')==r['media_id'] and m.get('projectId')==r['project'] for m in result.get('media',[]))
+        if not valid: raise PipelineError('uploaded media not verified')
         r.update(state='draft_uncertain',account=account)
         self._checkpoint()
         post=self.provider.draft(account,title,description,r['media_id'])
@@ -129,13 +132,44 @@ class CandidatePipeline:
         if key.split(':')[0] in set(map(str,self.s['ledger']['published_source_ids'])):
             raise PipelineError('source already published')
         q=urllib.parse.urlencode({'projectId':r['project'],'mediaId':r['media_id']})
-        result=self.provider.call('GET','/media?'+q)
-        if not any(m.get('id')==r['media_id'] and m.get('projectId')==r['project'] for m in result.get('media',[])):
-            raise PipelineError('uploaded media not verified')
+        if hasattr(self.provider,'verify_media'):
+            valid=self.provider.verify_media(r['project'],r['media_id'])
+        else:
+            result=self.provider.call('GET','/media?'+q)
+            valid=any(m.get('id')==r['media_id'] and m.get('projectId')==r['project'] for m in result.get('media',[]))
+        if not valid: raise PipelineError('uploaded media not verified')
         r.update(state='delivery_uncertain',account=account)
         self._checkpoint()
         post=self.provider.publish_now(account,title,description,r['media_id'])
         if not isinstance(post,str) or not post: raise PipelineError('publication outcome unknown')
+        r.update(state='delivery_recorded',post_id=post)
+        self._checkpoint()
+        return post
+
+
+    def publish_scheduled(self,key,account,title,description,scheduled_for,idempotency_key):
+        """Create one scheduled post after exact-byte signed review and durable state."""
+        self._guard()
+        r=_record(self.s,key)
+        if r['state']!='upload_complete': raise PipelineError('state blocks schedule or retry')
+        if not account or not title or not scheduled_for or not idempotency_key:
+            raise PipelineError('missing scheduled post fields')
+        if key.split(':')[0] in set(map(str,self.s['ledger']['published_source_ids'])):
+            raise PipelineError('source already published')
+        if not hasattr(self.provider,'publish_scheduled'):
+            raise PipelineError('provider does not support scheduled posts')
+        if hasattr(self.provider,'verify_media'):
+            valid=self.provider.verify_media(r['project'],r['media_id'])
+        else:
+            q=urllib.parse.urlencode({'projectId':r['project'],'mediaId':r['media_id']})
+            result=self.provider.call('GET','/media?'+q)
+            valid=any(m.get('id')==r['media_id'] and m.get('projectId')==r['project'] for m in result.get('media',[]))
+        if not valid: raise PipelineError('uploaded media not verified')
+        r.update(state='delivery_uncertain',account=account,scheduled_for=scheduled_for,
+                 idempotency_key=idempotency_key,provider=getattr(self.provider,'name','zernio'))
+        self._checkpoint()
+        post=self.provider.publish_scheduled(account,title,description,r['media_id'],scheduled_for,idempotency_key)
+        if not isinstance(post,str) or not post: raise PipelineError('scheduled post outcome unknown')
         r.update(state='delivery_recorded',post_id=post)
         self._checkpoint()
         return post
@@ -147,7 +181,7 @@ class CandidatePipeline:
         """
         self._guard()
         r=_record(self.s,key)
-        if r['state'] not in {'draft_recorded','verified_draft','delivery_uncertain','delivery_recorded'} or not r.get('post_id'):
+        if r['state'] not in {'draft_recorded','verified_draft','delivery_uncertain','delivery_recorded','delivery_scheduled'} or not r.get('post_id'):
             raise PipelineError('known post required for reconciliation')
         post=self.provider.post(r['post_id'])
         if post.get('id')!=r['post_id'] or post.get('projectId')!=r['project']:

@@ -10,6 +10,7 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self,*args,**kwargs): return None
 class ProviderError(Exception): pass
 class Provider:
+    name = 'woopsocial'
     def __init__(self,key=None,opener=None):
         self.key=(key or os.environ.get('WOOPSOCIAL_API_KEY','')).strip()
         if not self.key: raise ValueError('WOOPSOCIAL_API_KEY missing')

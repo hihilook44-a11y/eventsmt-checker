@@ -6,6 +6,7 @@ no audio stream may pass an exact-byte probe; no classifier confers approval.
 A matching destination and checkpoints remain required before provider writes.
 """
 import sys,os,re,hashlib,urllib.parse
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 ROOT=Path(__file__).resolve().parent
 sys.path.insert(0,str(ROOT));sys.path.insert(0,str(ROOT.parent))
@@ -14,6 +15,7 @@ from prepare_media import get_media
 from candidate_pipeline import CandidatePipeline,PipelineError,_key
 from git_checkpoint import encrypted_git_checkpoint
 from woopsocial_adapter import Provider
+from zernio_adapter import ZernioProvider, stable_idempotency_key
 from audio_review import verifier_with_silent_sources as review_verifier
 
 def run_candidate(snapshot,checkpoint,provider,key,data,project=None,account=None,title=None,description='',proof=None,verifier=None):
@@ -35,24 +37,32 @@ def select_candidate(s):
             return key,item
     return None,None
 
-def reconcile_known_deliveries(snapshot,checkpoint,provider):
+def reconcile_known_deliveries(snapshot,checkpoint,provider,providers=None):
     """Read back known submissions; only confirmed delivery updates the ledger.
 
     No retry occurs for unknown submission IDs or statuses. Provider/network errors
     stop the workflow rather than interpreting them as absence.
     """
-    pipeline=CandidatePipeline(snapshot,checkpoint,provider)
+    providers=providers or {getattr(provider,'name','woopsocial'):provider}
     for key,record in list(snapshot.get('candidate_deliveries',{}).items()):
-        if record.get('state') not in {'delivery_recorded','delivery_uncertain'} or not record.get('post_id'):
+        if record.get('state') not in {'delivery_recorded','delivery_uncertain','delivery_scheduled'} or not record.get('post_id'):
             continue
-        post=provider.post(record['post_id'])
+        selected=providers.get(record.get('provider',getattr(provider,'name','woopsocial')))
+        if selected is None: continue
+        pipeline=CandidatePipeline(snapshot,checkpoint,selected)
+        post=selected.post(record['post_id'])
         if post.get('id') != record['post_id'] or post.get('projectId') != record.get('project'):
             raise PipelineError('post identity mismatch')
         matches=[v for v in post.get('socialAccountPosts',[]) if v.get('socialAccountId') == record.get('account')]
         if len(matches)!=1: raise PipelineError('post destination mismatch')
-        if matches[0].get('deliveryStatus')=='PUBLISHED':
+        status=matches[0].get('deliveryStatus')
+        if status=='PUBLISHED':
             pipeline.reconcile_published(key)
-        # NOT_STARTED, SENDING, FAILED or unknown stay recorded and never retry.
+        elif record.get('provider')=='zernio' and status=='SCHEDULED' and record.get('state')!='delivery_scheduled':
+            record['state']='delivery_scheduled'; checkpoint(snapshot)
+        elif record.get('provider')=='zernio' and status=='FAILED' and record.get('state')!='delivery_failed':
+            record['state']='delivery_failed'; checkpoint(snapshot)
+        # NOT_STARTED, SENDING or unknown stay recorded; never retry.
 
 
 def delivery_in_flight(snapshot):
@@ -80,6 +90,8 @@ def reviewed_candidates(snapshot,verify):
 
 def exact_destination(provider,project,account):
     if not project or not account: return False
+    if hasattr(provider,'verify_destination'):
+        return provider.verify_destination(project,account)
     projects=provider.projects()
     if sum(1 for p in projects if p.get('id')==project)!=1: return False
     rows=provider.call('GET','/social-accounts?'+urllib.parse.urlencode({'projectId':project}))
@@ -101,7 +113,14 @@ def established_destination(snapshot, provider):
     if name!='mt fivem- زيكو': return None,None
     return project,account
 
+def zernio_scheduling_enabled(env=None):
+    env=os.environ if env is None else env
+    return env.get('ZERNIO_SCHEDULED_PUBLISHING_ENABLED','').strip().lower()=='true'
+
+
 def publish_reviewed(snapshot,checkpoint,provider,item,data,proof,verify,project,account):
+    if getattr(provider,'name','')=='zernio' and not zernio_scheduling_enabled():
+        raise PipelineError('Zernio scheduled publishing is disabled')
     key=_key(item)
     if verify is None or not verify(item,data,proof): raise PipelineError('signed complete audio review required')
     if not exact_destination(provider,project,account): raise PipelineError('configured destination unavailable')
@@ -116,21 +135,45 @@ def publish_reviewed(snapshot,checkpoint,provider,item,data,proof,verify,project
     text=' '.join(text.split())
     title=(text[:80].strip() or 'أحداث MT')+' | أحداث MT'
     description=(text+'\nالمصدر: https://x.com/__eventsMT/status/'+key.split(':')[0]).strip()
-    pipeline.publish_now(key,account,title,description)
+    if hasattr(provider,'publish_scheduled'):
+        delay=int(os.environ.get('ZERNIO_SCHEDULE_DELAY_MINUTES','15'))
+        if not 5 <= delay <= 120: raise PipelineError('scheduled delay outside safe range')
+        scheduled=(datetime.now(timezone.utc)+timedelta(minutes=delay)).replace(microsecond=0).isoformat().replace('+00:00','Z')
+        idem=stable_idempotency_key(account,key,record['sha256'])
+        pipeline.publish_scheduled(key,account,title,description,scheduled,idem)
+    else:
+        pipeline.publish_now(key,account,title,description)
     reconcile_known_deliveries(snapshot,checkpoint,provider)
     return snapshot['candidate_deliveries'][key]['state']
 
 def main():
     f=read_key();s=load_snapshot(f)
     cp=lambda obj:encrypted_git_checkpoint(ROOT.parent,f,obj)
-    provider=Provider()
-    reconcile_known_deliveries(s,cp,provider)
+    providers={}
+    zernio_enabled=zernio_scheduling_enabled()
+    if zernio_enabled:
+        # Enabling the provider requires an explicit flag plus all three scoped
+        # inputs; credentials alone can never activate scheduled publication.
+        missing=[name for name in ('ZERNIO_API_KEY','ZERNIO_PROFILE_ID','ZERNIO_YOUTUBE_ACCOUNT_ID')
+                 if not os.environ.get(name,'').strip()]
+        if missing: raise PipelineError('Zernio enabled but scoped configuration is incomplete')
+        provider=ZernioProvider()
+        providers['zernio']=provider
+        if os.environ.get('WOOPSOCIAL_API_KEY','').strip():
+            providers['woopsocial']=Provider()
+    else:
+        provider=Provider()
+        providers['woopsocial']=provider
+    reconcile_known_deliveries(s,cp,provider,providers)
     if delivery_in_flight(s):
         print('Earlier delivery is unresolved; further publication paused.')
         return
     verify=review_verifier(os.environ.get('AUDIO_REVIEW_PUBLIC_KEY',''))
-    project=os.environ.get('WOOPSOCIAL_PROJECT_ID','').strip()
-    account=os.environ.get('WOOPSOCIAL_YOUTUBE_ACCOUNT_ID','').strip()
+    if getattr(provider,'name','')=='zernio':
+        project,account=provider.profile,provider.account
+    else:
+        project=os.environ.get('WOOPSOCIAL_PROJECT_ID','').strip()
+        account=os.environ.get('WOOPSOCIAL_YOUTUBE_ACCOUNT_ID','').strip()
     if not project and not account:
         project,account=established_destination(s,provider)
         print('Saved YouTube destination:', 'matched' if project and account else 'not matched; publication disabled')
