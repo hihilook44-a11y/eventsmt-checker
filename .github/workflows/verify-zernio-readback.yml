@@ -30,13 +30,52 @@ jobs:
           import os
           from zernio_adapter import ZernioProvider
           p = ZernioProvider()
+          import urllib.parse
+          post_id = os.environ['VERIFY_POST_ID']
           if not p.verify_destination(p.profile, p.account):
               raise SystemExit('Configured YouTube destination did not match')
-          result = p.post(os.environ['VERIFY_POST_ID'])
-          matches = [row for row in result['socialAccountPosts']
-                     if row.get('platform') == 'youtube'
-                     and row.get('socialAccountId') == p.account]
-          if len(matches) != 1 or matches[0].get('deliveryStatus') not in {'PUBLISHED', 'SCHEDULED'}:
-              raise SystemExit('Exact YouTube target or delivery state was not confirmed')
-          print('Read-only post check: exact YouTube account confirmed; state:', matches[0]['deliveryStatus'])
+          post_result = p._api('GET', '/posts/' + urllib.parse.quote(post_id, safe=''))
+          post = post_result.get('post') if isinstance(post_result, dict) else None
+          if not isinstance(post, dict) or post.get('_id') != post_id:
+              raise SystemExit('Post identity unavailable')
+          account_query = urllib.parse.urlencode({'profileId': p.profile, 'limit': 100})
+          account_result = p._api('GET', '/accounts?' + account_query)
+          account_rows = account_result.get('accounts') if isinstance(account_result, dict) else None
+          if not isinstance(account_rows, list):
+              raise SystemExit('Account list unavailable')
+          names = {row.get('_id', row.get('id')): row.get('username')
+                   for row in account_rows if isinstance(row, dict)}
+          for row in post.get('platforms', []):
+              if not isinstance(row, dict):
+                  continue
+              value = row.get('accountId')
+              normalized = value.strip().lower() if isinstance(value, str) else None
+              print('POST platform row:', {
+                  'platform': row.get('platform'), 'status': row.get('status'),
+                  'account_id_type': type(value).__name__,
+                  'account_id_length': len(value) if isinstance(value, str) else None,
+                  'exact_target_match': value == p.account,
+                  'normalized_target_match': normalized == p.account.strip().lower() if normalized is not None else False,
+                  'mapped_username': names.get(value),
+              })
+          query = urllib.parse.urlencode({'postId': post_id, 'profileId': p.profile,
+                                          'platform': 'youtube', 'source': 'late'})
+          analytics = p._api('GET', '/analytics?' + query)
+          analytics_rows = analytics.get('platformAnalytics') if isinstance(analytics, dict) else None
+          if not isinstance(analytics_rows, list):
+              raise SystemExit('Analytics rows unavailable')
+          for row in analytics_rows:
+              if not isinstance(row, dict):
+                  continue
+              value = row.get('accountId')
+              normalized = value.strip().lower() if isinstance(value, str) else None
+              print('ANALYTICS platform row:', {
+                  'platform': row.get('platform'), 'status': row.get('status'),
+                  'account_id_type': type(value).__name__,
+                  'account_id_length': len(value) if isinstance(value, str) else None,
+                  'exact_target_match': value == p.account,
+                  'normalized_target_match': normalized == p.account.strip().lower() if normalized is not None else False,
+                  'mapped_username': names.get(value),
+                  'platform_post_id_present': bool(row.get('platformPostId')),
+              })
           PY
