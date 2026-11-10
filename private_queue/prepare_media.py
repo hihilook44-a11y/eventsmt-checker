@@ -4,7 +4,7 @@
 No submission, audio-clearance inference, publication, or durable plaintext media.
 Only media fingerprint and probe metadata are stored inside the encrypted snapshot.
 """
-import hashlib,json,os,subprocess,sys,tempfile,urllib.request,urllib.parse
+import hashlib,json,os,signal,subprocess,sys,tempfile,urllib.request,urllib.parse
 from pathlib import Path
 ROOT=Path(__file__).resolve().parent
 sys.path.insert(0,str(ROOT.parent))
@@ -35,9 +35,19 @@ def get_media(url,opener=None):
     check_url(url)
     req=urllib.request.Request(url,headers={'User-Agent':'Mozilla/5.0'})
     opener=opener or urllib.request.build_opener(SafeRedirect())
-    with opener.open(req,timeout=40) as r:
-        check_url(r.geturl())
-        data=r.read(MAX_BYTES+1)
+    # Per-socket timeouts do not bound a slow streaming response. Impose a
+    # whole-transfer limit so preparation cannot hold the publication job forever.
+    def deadline(_signum, _frame):
+        raise TimeoutError('media download exceeded total deadline')
+    old_handler=signal.signal(signal.SIGALRM,deadline)
+    signal.alarm(90)
+    try:
+        with opener.open(req,timeout=40) as r:
+            check_url(r.geturl())
+            data=r.read(MAX_BYTES+1)
+    finally:
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM,old_handler)
     if not data or len(data)>MAX_BYTES: raise ValueError('invalid media size')
     return data
 

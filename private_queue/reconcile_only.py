@@ -18,6 +18,13 @@ def main():
             if len(matches)!=1: raise ValueError('provider destination mismatch')
             status=matches[0].get('deliveryStatus')
             print('Provider delivery status:', status if status in ('NOT_STARTED','SENDING','PUBLISHED','FAILED') else 'OTHER')
+            if status == 'FAILED':
+                # Report only coarse categories, never arbitrary provider content.
+                import json
+                text=json.dumps(matches[0],ensure_ascii=False).lower()
+                for label,terms in [('quota_or_limit',('quota','limit','capacity')),('authentication',('auth','unauthorized','expired','permission')),('media',('media','format','upload')),('copyright',('copyright','content id'))]:
+                    if any(term in text for term in terms): print('Failure category:',label)
+                print('Provider status field names:', ','.join(sorted(k for k in matches[0] if isinstance(k,str) and len(k)<50)))
     for r in s.get('candidate_deliveries',{}).values():
         if r.get('state') in ('published','delivery_recorded','delivery_uncertain'):
             print('Delivery:',r['state'])
