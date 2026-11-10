@@ -44,20 +44,33 @@ jobs:
           if not isinstance(account_rows, list):
               raise SystemExit('Account list unavailable')
           names = {row.get('_id', row.get('id')): row.get('username')
-                   for row in account_rows if isinstance(row, dict)}
+                   for row in account_rows if isinstance(row, dict)
+                   and isinstance(row.get('_id', row.get('id')), str)}
+          def inspect_id(label, value, path='accountId', depth=0):
+              if isinstance(value, dict):
+                  print(label, path, 'object keys:', sorted(value.keys()))
+                  if depth < 2:
+                      for key, child in value.items():
+                          inspect_id(label, child, path + '.' + str(key), depth + 1)
+              elif isinstance(value, list):
+                  print(label, path, 'array length:', len(value))
+                  if depth < 2:
+                      for index, child in enumerate(value[:10]):
+                          inspect_id(label, child, path + '[' + str(index) + ']', depth + 1)
+              elif isinstance(value, str):
+                  normalized = value.strip().lower()
+                  print(label, path, {
+                      'type': 'string', 'length': len(value),
+                      'exact_target_match': value == p.account,
+                      'normalized_target_match': normalized == p.account.strip().lower(),
+                      'mapped_username': names.get(value),
+                  })
+              else:
+                  print(label, path, 'type:', type(value).__name__)
           for row in post.get('platforms', []):
-              if not isinstance(row, dict):
-                  continue
-              value = row.get('accountId')
-              normalized = value.strip().lower() if isinstance(value, str) else None
-              print('POST platform row:', {
-                  'platform': row.get('platform'), 'status': row.get('status'),
-                  'account_id_type': type(value).__name__,
-                  'account_id_length': len(value) if isinstance(value, str) else None,
-                  'exact_target_match': value == p.account,
-                  'normalized_target_match': normalized == p.account.strip().lower() if normalized is not None else False,
-                  'mapped_username': names.get(value),
-              })
+              if isinstance(row, dict):
+                  print('POST platform/status:', row.get('platform'), row.get('status'))
+                  inspect_id('POST', row.get('accountId'))
           query = urllib.parse.urlencode({'postId': post_id, 'profileId': p.profile,
                                           'platform': 'youtube', 'source': 'late'})
           analytics = p._api('GET', '/analytics?' + query)
@@ -67,15 +80,9 @@ jobs:
           for row in analytics_rows:
               if not isinstance(row, dict):
                   continue
+              print('ANALYTICS platform/status:', row.get('platform'), row.get('status'))
+              inspect_id('ANALYTICS', row.get('accountId'))
               value = row.get('accountId')
-              normalized = value.strip().lower() if isinstance(value, str) else None
-              print('ANALYTICS platform row:', {
-                  'platform': row.get('platform'), 'status': row.get('status'),
-                  'account_id_type': type(value).__name__,
-                  'account_id_length': len(value) if isinstance(value, str) else None,
-                  'exact_target_match': value == p.account,
-                  'normalized_target_match': normalized == p.account.strip().lower() if normalized is not None else False,
-                  'mapped_username': names.get(value),
-                  'platform_post_id_present': bool(row.get('platformPostId')),
-              })
+              if isinstance(value, str):
+                  print('ANALYTICS platform post ID present:', bool(row.get('platformPostId')))
           PY
