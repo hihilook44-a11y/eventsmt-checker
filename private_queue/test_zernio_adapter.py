@@ -69,6 +69,13 @@ class ZernioAdapterTests(unittest.TestCase):
         result=self.p._api('POST','/posts',{'content':'caption'})
         self.assertEqual(result['post']['status'],'partial')
 
+    def test_scheduled_destination_status_is_accepted_case_insensitively(self):
+        for status in ('scheduled', 'SCHEDULED'):
+            with self.subTest(status=status):
+                self.p._api=lambda *a, _status=status, **k:{'post':{'_id':'post-1','status':'scheduled','platforms':[{'platform':'youtube','accountId':ACCOUNT,'status':_status}]}}
+                idem=stable_idempotency_key(ACCOUNT,'123:456','a'*64)
+                self.assertEqual(self.p.publish_scheduled(ACCOUNT,'title','description','https://media.zernio.com/temp/v.mp4','2026-11-10T11:00:00Z',idem),'post-1')
+
     def test_published_create_response_is_read_back_not_rejected(self):
         self.p._api=lambda *a,**k:{'post':{'_id':'post-1','status':'published','platforms':[{'platform':'youtube','accountId':ACCOUNT,'status':'published'}]}}
         self.assertEqual(self.p.publish_scheduled(ACCOUNT,'title','description','https://media.zernio.com/temp/v.mp4','2026-11-10T11:00:00Z','key'),'post-1')

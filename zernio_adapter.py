@@ -159,7 +159,8 @@ class ZernioProvider:
         if not post_id or post.get('status') not in ('scheduled', 'publishing', 'published', 'partial', 'failed'):
             raise ZernioError('scheduled post not confirmed')
         matches = [p for p in post.get('platforms', []) if p.get('accountId') == account and p.get('platform') == 'youtube']
-        if len(matches) != 1 or matches[0].get('status') not in ('pending', 'processing', 'published', 'failed', 'cancelled', 'uploading'):
+        destination_status = str(matches[0].get('status', '')).strip().lower() if len(matches) == 1 else ''
+        if len(matches) != 1 or destination_status not in ('scheduled', 'pending', 'processing', 'published', 'failed', 'cancelled', 'uploading'):
             raise ZernioError('scheduled destination not confirmed')
         return post_id
 
