@@ -5,7 +5,7 @@ Audio-bearing candidates require a signed complete review. Unmodified files with
 no audio stream may pass an exact-byte probe; no classifier confers approval.
 A matching destination and checkpoints remain required before provider writes.
 """
-import sys,os,re,hashlib,urllib.parse
+import sys,os,re,hashlib,urllib.parse,json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 ROOT=Path(__file__).resolve().parent
