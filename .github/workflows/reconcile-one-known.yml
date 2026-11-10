@@ -21,6 +21,7 @@ jobs:
       - name: Match the confirmed publication and checkpoint only
         env:
           PRIVATE_QUEUE_FERNET_KEY: ${{ secrets.PRIVATE_QUEUE_FERNET_KEY }}
+          AUDIO_REVIEW_PUBLIC_KEY: ${{ secrets.AUDIO_REVIEW_PUBLIC_KEY }}
           ZERNIO_API_KEY: ${{ secrets.ZERNIO_API_KEY }}
           ZERNIO_PROFILE_ID: ${{ secrets.ZERNIO_PROFILE_ID }}
           ZERNIO_YOUTUBE_ACCOUNT_ID: ${{ secrets.ZERNIO_YOUTUBE_ACCOUNT_ID }}
