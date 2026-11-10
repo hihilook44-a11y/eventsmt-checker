@@ -55,6 +55,12 @@ def reconcile_known_deliveries(snapshot,checkpoint,provider):
         # NOT_STARTED, SENDING, FAILED or unknown stay recorded and never retry.
 
 
+def delivery_in_flight(snapshot):
+    """Stop further delivery when an earlier remote write has an unresolved outcome."""
+    return any(r.get('state') in {'upload_uncertain','draft_uncertain','delivery_uncertain','delivery_recorded'}
+               for r in snapshot.get('candidate_deliveries',{}).values())
+
+
 def reviewed_candidates(snapshot,verify):
     """Select signed-review candidates or metadata-marked audio-free candidates.
 
@@ -119,6 +125,9 @@ def main():
     cp=lambda obj:encrypted_git_checkpoint(ROOT.parent,f,obj)
     provider=Provider()
     reconcile_known_deliveries(s,cp,provider)
+    if delivery_in_flight(s):
+        print('Earlier delivery is unresolved; further publication paused.')
+        return
     verify=review_verifier(os.environ.get('AUDIO_REVIEW_PUBLIC_KEY',''))
     project=os.environ.get('WOOPSOCIAL_PROJECT_ID','').strip()
     account=os.environ.get('WOOPSOCIAL_YOUTUBE_ACCOUNT_ID','').strip()

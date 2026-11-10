@@ -1,5 +1,5 @@
 import unittest
-from workflow_pipeline import reconcile_known_deliveries
+from workflow_pipeline import reconcile_known_deliveries, delivery_in_flight
 from candidate_pipeline import PipelineError
 class P:
  def __init__(self,status):self.status=status;self.calls=[]
@@ -14,6 +14,13 @@ class Tests(unittest.TestCase):
    s=snapshot();writes=[];reconcile_known_deliveries(s,lambda s:writes.append(1),P(status));self.assertEqual(s['ledger']['published_source_ids'],[]);self.assertEqual(writes,[])
  def test_missing_post_id_is_not_guessed(self):
   s=snapshot();s['candidate_deliveries']['12:34'].pop('post_id');p=P('PUBLISHED');reconcile_known_deliveries(s,lambda s:None,p);self.assertEqual(p.calls,[])
+ def test_in_flight_prevents_another_delivery(self):
+  for state in ['upload_uncertain','draft_uncertain','delivery_uncertain','delivery_recorded']:
+   s=snapshot();s['candidate_deliveries']['12:34']['state']=state
+   self.assertTrue(delivery_in_flight(s))
+  for state in ['published','awaiting_audio_review','upload_complete']:
+   s=snapshot();s['candidate_deliveries']['12:34']['state']=state
+   self.assertFalse(delivery_in_flight(s))
  def test_wrong_destination_fails_closed(self):
   s=snapshot();p=P('PUBLISHED');p.post=lambda id:{'id':id,'projectId':'p','socialAccountPosts':[{'socialAccountId':'other','deliveryStatus':'PUBLISHED'}]}
   with self.assertRaises(PipelineError):reconcile_known_deliveries(s,lambda s:None,p)
