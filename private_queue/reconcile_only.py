@@ -24,7 +24,6 @@ def main():
                 text=str(matches[0].get('errorMessage') or '').lower()
                 for label,terms in [('quota_or_limit',('quota','limit','capacity')),('authentication',('auth','unauthorized','expired','permission')),('media',('media','format','upload')),('copyright',('copyright','content id'))]:
                     if any(term in text for term in terms): print('Failure category:',label)
-                print('Provider error:', text[:500] if all(x not in text for x in ('bearer ', 'token=', 'key=')) else '[redacted]')
     for r in s.get('candidate_deliveries',{}).values():
         if r.get('state') in ('published','delivery_recorded','delivery_uncertain'):
             print('Delivery:',r['state'])
