@@ -4,7 +4,8 @@
 Never creates posts. A record is updated only when every candidate, destination,
 source, media and idempotency key matches the provider's exact post.
 """
-import re, sys
+import hashlib, re, sys, urllib.request
+from urllib.parse import urlsplit
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from secure_scan import read_key, load_snapshot
@@ -14,6 +15,25 @@ from candidate_pipeline import CandidatePipeline
 
 POST_ID='6af3574d185f99d035290515'
 SOURCE_ID='2119732969342746732'
+
+def media_sha256(url):
+    """Hash a bounded public Zernio media URL; never fetch arbitrary hosts."""
+    if not isinstance(url,str): return None
+    parsed=urlsplit(url)
+    if parsed.scheme!='https' or parsed.hostname!='media.zernio.com' or parsed.username or parsed.password:
+        return None
+    try:
+        digest=hashlib.sha256(); total=0
+        with urllib.request.urlopen(url,timeout=20) as response:
+            while True:
+                chunk=response.read(1024*1024)
+                if not chunk: break
+                total+=len(chunk)
+                if total>500_000_000: return None
+                digest.update(chunk)
+        return digest.hexdigest()
+    except Exception:
+        return None
 
 def match_record(snapshot, provider, raw):
     post=raw.get('post') if isinstance(raw,dict) else None
@@ -35,29 +55,17 @@ def match_record(snapshot, provider, raw):
     if post.get('metadata',{}).get('eventsmtPipelineKey')!=record['idempotency_key']:
         raise ValueError('provider idempotency metadata mismatch')
     media=post.get('mediaItems',[])
-    if len(media)!=1 or media[0].get('url')!=record.get('media_id'):
-        from urllib.parse import urlsplit
-        saved=record.get('media_id')
-        print('Media comparison:', {'items':len(media),'item_fields':sorted(media[0].keys()) if media and isinstance(media[0],dict) else [], 'saved_type':type(saved).__name__, 'saved_host':urlsplit(saved).hostname if isinstance(saved,str) else None, 'post_host':urlsplit(media[0].get('url','')).hostname if media and isinstance(media[0],dict) else None, 'same_path':bool(media and isinstance(saved,str) and isinstance(media[0],dict) and urlsplit(saved).path==urlsplit(media[0].get('url','')).path)}, flush=True)
-        import hashlib, urllib.request
-        def digest(url):
-            u=urlsplit(url)
-            if u.scheme!='https' or u.hostname!='media.zernio.com': return None
-            try:
-                h=hashlib.sha256(); total=0
-                with urllib.request.urlopen(url,timeout=20) as response:
-                    while True:
-                        chunk=response.read(1048576)
-                        if not chunk: break
-                        total+=len(chunk)
-                        if total>500_000_000: return None
-                        h.update(chunk)
-                return h.hexdigest(),total
-            except Exception: return None
-        old=digest(saved) if isinstance(saved,str) else None
-        new=digest(media[0].get('url','')) if media and isinstance(media[0],dict) else None
-        print('Media bytes comparison:', {'saved_readable':old is not None,'post_readable':new is not None,'same_bytes':bool(old and new and old==new),'saved_matches_review':bool(old and old[0]==record.get('sha256')),'post_matches_review':bool(new and new[0]==record.get('sha256'))}, flush=True)
-        raise ValueError('media mismatch')
+    if len(media)!=1 or not isinstance(media[0],dict):
+        raise ValueError('media item mismatch')
+    saved_url=record.get('media_id')
+    post_url=media[0].get('url')
+    expected=record.get('sha256')
+    if not isinstance(expected,str) or not re.fullmatch(r'[0-9a-f]{64}',expected):
+        raise ValueError('review fingerprint missing')
+    saved_hash=media_sha256(saved_url)
+    post_hash=saved_hash if saved_url==post_url else media_sha256(post_url)
+    if not saved_hash or not post_hash or saved_hash!=expected or post_hash!=expected:
+        raise ValueError('media fingerprint mismatch')
     platforms=[p for p in post.get('platforms',[]) if p.get('accountId')==provider.account and p.get('platform')=='youtube']
     if len(platforms)!=1 or platforms[0].get('status')!='published' or not platforms[0].get('platformPostId'):
         raise ValueError('youtube publication not established')
