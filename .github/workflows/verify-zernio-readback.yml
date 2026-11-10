@@ -85,4 +85,12 @@ jobs:
               value = row.get('accountId')
               if isinstance(value, str):
                   print('ANALYTICS platform post ID present:', bool(row.get('platformPostId')))
+          normalized = p.post(post_id)
+          exact = [row for row in normalized['socialAccountPosts']
+                   if row.get('platform') == 'youtube'
+                   and row.get('socialAccountId') == p.account]
+          if len(exact) != 1 or exact[0].get('deliveryStatus') not in {'PUBLISHED', 'SCHEDULED'}:
+              raise SystemExit('Exact YouTube target or delivery state was not confirmed')
+          print('Read-only post check: exact configured YouTube account confirmed; state:',
+                exact[0]['deliveryStatus'])
           PY

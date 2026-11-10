@@ -108,6 +108,33 @@ class ZernioAdapterTests(unittest.TestCase):
         self.assertEqual(query,{'postId':['p'],'profileId':[PROFILE],'accountId':[ACCOUNT],
                                 'platform':['youtube'],'source':['late']})
 
+    def test_post_normalizes_expanded_account_object_by_exact_id(self):
+        calls=[]
+        def api(method,path,payload=None,headers=None):
+            calls.append(path)
+            return {'post':{'_id':'p','status':'published','platforms':[{
+                'platform':'youtube',
+                'accountId':{'_id':ACCOUNT,'username':'mt_zico','platform':'youtube','profileId':PROFILE},
+                'status':'published','platformPostId':'youtube-id'}]}}
+        self.p._api=api
+        post=self.p.post('p')
+        self.assertEqual(calls,['/posts/p'])
+        self.assertEqual(len(post['socialAccountPosts']),1)
+        self.assertEqual(post['socialAccountPosts'][0]['socialAccountId'],ACCOUNT)
+        self.assertEqual(post['socialAccountPosts'][0]['deliveryStatus'],'PUBLISHED')
+
+    def test_post_rejects_expanded_account_object_with_other_id(self):
+        calls=[]
+        def api(method,path,payload=None,headers=None):
+            calls.append(path)
+            return {'post':{'_id':'p','status':'published','platforms':[{
+                'platform':'youtube', 'accountId':{'_id':'other','username':'mt_zico'},
+                'status':'published'}]}}
+        self.p._api=api
+        with self.assertRaisesRegex(ZernioError,'post target mismatch'):
+            self.p.post('p')
+        self.assertEqual(calls,['/posts/p'])
+
     def test_post_never_overrides_explicit_other_youtube_account(self):
         calls=[]
         def api(method,path,payload=None,headers=None):

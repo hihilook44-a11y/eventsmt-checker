@@ -179,12 +179,23 @@ class ZernioProvider:
             raise ZernioError('post target list unavailable')
         youtube_rows = [row for row in platforms if isinstance(row, dict)
                         and str(row.get('platform', '')).lower() == 'youtube']
+
+        def normalized_account_id(row):
+            # Zernio /posts/{id} expands accountId to an account object,
+            # whereas /analytics returns the same identity as a string.
+            # Compare only the canonical account _id; never infer a target
+            # from username or profile metadata.
+            value = row.get('accountId')
+            if isinstance(value, dict):
+                value = value.get('_id')
+            return value
+
         rows = []
         for platform in platforms:
             if not isinstance(platform, dict):
                 continue
             rows.append({
-                'socialAccountId': platform.get('accountId'),
+                'socialAccountId': normalized_account_id(platform),
                 'platform': platform.get('platform'),
                 'deliveryStatus': statuses.get(str(platform.get('status', '')).lower(), 'OTHER'),
                 'externalPostId': platform.get('platformPostId'),
@@ -199,7 +210,7 @@ class ZernioProvider:
             # documented analytics read, constrained to this exact post, profile,
             # YouTube account and Zernio-created posts. Never override a conflicting
             # explicit YouTube account from the post response.
-            if any(row.get('accountId') not in (None, '') for row in youtube_rows):
+            if any(normalized_account_id(row) not in (None, '') for row in youtube_rows):
                 raise ZernioError('post target mismatch')
             query = urllib.parse.urlencode({
                 'postId': post_id, 'profileId': self.profile, 'accountId': self.account,
