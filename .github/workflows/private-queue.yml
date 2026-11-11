@@ -30,6 +30,7 @@ jobs:
         continue-on-error: true
         env:
           PRIVATE_QUEUE_FERNET_KEY: ${{ secrets.PRIVATE_QUEUE_FERNET_KEY }}
+          AUTOMATIC_AUDIO_RISK_ACCEPTED: 'true'
         run: |
           for attempt in 1 2 3; do
             if python private_queue/secure_scan.py; then exit 0; fi
@@ -48,6 +49,7 @@ jobs:
       - name: Verify synthetic pipeline and durable safeguards
         run: |
           python -m unittest discover -s private_queue -p 'test_music_triage.py' -v
+          python -m unittest discover -s private_queue -p 'test_automatic_audio.py' -v
           python -m unittest discover -s private_queue -p 'test_compilation_assessment.py' -v
           python -m unittest discover -s private_queue -p 'test_workflow_pipeline.py' -v
           python -m unittest discover -s private_queue -p 'test_reviewed_delivery.py' -v
@@ -67,13 +69,14 @@ jobs:
           ZERNIO_PROFILE_ID: ${{ secrets.ZERNIO_PROFILE_ID }}
           ZERNIO_YOUTUBE_ACCOUNT_ID: ${{ secrets.ZERNIO_YOUTUBE_ACCOUNT_ID }}
           ZERNIO_SCHEDULE_DELAY_MINUTES: '15'
+          AUTOMATIC_AUDIO_RISK_ACCEPTED: 'true'
         run: python private_queue/workflow_pipeline.py
       - name: Prepare candidate for audio review
         env:
           PRIVATE_QUEUE_FERNET_KEY: ${{ secrets.PRIVATE_QUEUE_FERNET_KEY }}
         run: |
           command -v ffprobe >/dev/null || (sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg)
-          python private_queue/prepare_media.py
+          for item in $(seq 1 12); do python private_queue/prepare_media.py; done
           git add private_queue/queue.enc
           if ! git diff --cached --quiet; then
             git commit -m 'Checkpoint encrypted audio-review preparation'
@@ -113,6 +116,21 @@ jobs:
             git commit -m 'Checkpoint encrypted audio risk assessment'
             git push origin HEAD:main
           fi
+      - name: Process conservatively classified audio after assessment
+        # Owner accepted detector errors; suspected/failed audio remains blocked.
+        env:
+          PRIVATE_QUEUE_FERNET_KEY: ${{ secrets.PRIVATE_QUEUE_FERNET_KEY }}
+          WOOPSOCIAL_API_KEY: ${{ secrets.WOOPSOCIAL_API_KEY }}
+          AUDIO_REVIEW_PUBLIC_KEY: ${{ secrets.AUDIO_REVIEW_PUBLIC_KEY }}
+          WOOPSOCIAL_PROJECT_ID: ${{ secrets.WOOPSOCIAL_PROJECT_ID }}
+          WOOPSOCIAL_YOUTUBE_ACCOUNT_ID: ${{ secrets.WOOPSOCIAL_YOUTUBE_ACCOUNT_ID }}
+          ZERNIO_SCHEDULED_PUBLISHING_ENABLED: 'true'
+          ZERNIO_API_KEY: ${{ secrets.ZERNIO_API_KEY }}
+          ZERNIO_PROFILE_ID: ${{ secrets.ZERNIO_PROFILE_ID }}
+          ZERNIO_YOUTUBE_ACCOUNT_ID: ${{ secrets.ZERNIO_YOUTUBE_ACCOUNT_ID }}
+          ZERNIO_SCHEDULE_DELAY_MINUTES: '15'
+          AUTOMATIC_AUDIO_RISK_ACCEPTED: 'true'
+        run: python private_queue/workflow_pipeline.py
       - name: Assess reviewed compilation readiness (no publication)
         # Read-only: a 10-minute result is readiness, not a rendered video or delivery.
         # Independent from Shorts ledger and stops on unresolved compilation attempts.
@@ -121,6 +139,7 @@ jobs:
         env:
           PRIVATE_QUEUE_FERNET_KEY: ${{ secrets.PRIVATE_QUEUE_FERNET_KEY }}
           AUDIO_REVIEW_PUBLIC_KEY: ${{ secrets.AUDIO_REVIEW_PUBLIC_KEY }}
+          AUTOMATIC_AUDIO_RISK_ACCEPTED: 'true'
         run: python private_queue/compilation_assessment.py
       - name: Report incomplete source scan
         if: steps.source_scan.outcome == 'failure'

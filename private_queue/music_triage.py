@@ -9,7 +9,7 @@ import hashlib, json, math, os, subprocess, sys, tempfile
 from pathlib import Path
 from candidate_pipeline import _key
 
-MODEL_VERSION='yamnet-efficientat-20261111-v1'
+MODEL_VERSION='yamnet-efficientat-20261111-v2-wholetrack'
 Y_SHA='d3835ffbbd4a1bb3e777f0ca217b5007907f5171dd5d17c4236b95b2af8f908e'
 E_SHA='f11d0be24823294117798e3c385f53c8193e61e68637fcdd78df32313c4463bd'
 THRESHOLD=0.10
@@ -63,7 +63,8 @@ def score(data, model_dir):
         if not (0<actual<=MAX_DURATION+1) or actual < max(.5,duration-3): raise ValueError('incomplete audio decoding')
         ym,em=calculate(wave,y,e,np)
     return {'duration_seconds':round(actual,3),'yamnet_peak':round(ym,6),'efficientat_peak':round(em,6),
-            'classification':'music_suspected' if max(ym,em)>=THRESHOLD else 'inconclusive'}
+            'assessment_scope':'entire_audio',
+            'classification':'music_suspected' if max(ym,em)>=0.05 else 'low_risk'}
 
 def triage_one(s,fetch=None,scorer=None):
     if fetch is None:
@@ -75,15 +76,18 @@ def triage_one(s,fetch=None,scorer=None):
     if digest!=s['prepared_media'][key].get('sha256'):raise ValueError('prepared bytes changed')
     if scorer is None:scorer=lambda data:score(data,os.environ['MUSIC_MODEL_DIR'])
     result=scorer(data)
-    if result.get('classification') not in {'music_suspected','inconclusive'}:raise ValueError('bad result')
+    if result.get('classification') not in {'music_suspected','inconclusive','low_risk'}:raise ValueError('bad result')
     s.setdefault('music_triage',{})[key]={**result,'sha256':digest,'model_version':MODEL_VERSION,'is_clearance':False}
     return True
 
 def main():
     from secure_scan import read_key, load_snapshot, write_encrypted
     f=read_key();s=load_snapshot(f)
-    if triage_one(s):write_encrypted(f,s);print('One audio risk assessment saved encrypted; no audio clearance, upload or publication.')
-    else:print('No unassessed prepared audio candidate; no upload or publication.')
+    count=0
+    for _ in range(12):
+        if not triage_one(s):break
+        write_encrypted(f,s);count+=1
+    print('Probabilistic whole-track assessments saved:',count,'; not human reviews.')
 if __name__=='__main__':
     try:main()
     except Exception as exc:

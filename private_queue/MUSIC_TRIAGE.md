@@ -11,3 +11,7 @@ Model sources and licenses:
 - EfficientAT MN10: https://huggingface.co/minhducjp/webdonhac-models (MIT for this model; AudioSet labels under CC BY-SA 4.0). Florian Schmid et al., "Efficient Large-Scale Audio Tagging via Transformer-to-CNN Knowledge Distillation", ICASSP 2023; see model card for full license text.
 
 Additional local evaluation: PANNs Cnn14 ONNX (SHA-256 `be2badf3f285866f6b389ac8a27bf705a0f31a11b6f5ffbace51d81b4d4127a9`, same model-card source, CC BY 4.0) caught more quiet mixtures, but the YAMNet/PANNs pair still missed 1/12 controlled overlaps and the filtered residual case at 0.10, and flagged 7/8 previously described song-free clips. Runtime was approximately 25 seconds with 1.1 GiB peak RSS. It is not deployed in the scheduled pair: it did not establish a reliable song-absence decision and adds about 312 MiB of weights. These comparisons are limited tests, not proof that all automatic methods are unsuitable.
+
+
+## 2026-11-11 owner-selected probabilistic mode
+After explicit warning about missed music, the owner requested automatic publishing. `AUTOMATIC_AUDIO_RISK_ACCEPTED=true` now permits exact-byte whole-audio assessments only when both pinned models peak below 0.05. Suspected, incomplete, changed, or failed assessments block. This is NOT a human review, song-free guarantee, or calibration of an error rate. Original speech/audio is preserved. Signed reviews remain separate and unmodified. Existing durable idempotency and duplicate ledgers remain mandatory. Compilations require at least 600 seconds of unique eligible originals.

@@ -40,4 +40,5 @@ jobs:
           ZERNIO_PROFILE_ID: ${{ secrets.ZERNIO_PROFILE_ID }}
           ZERNIO_YOUTUBE_ACCOUNT_ID: ${{ secrets.ZERNIO_YOUTUBE_ACCOUNT_ID }}
           COMPILATION_ENABLED: 'true'
+          AUTOMATIC_AUDIO_RISK_ACCEPTED: 'true'
         run: python private_queue/compilation_delivery.py

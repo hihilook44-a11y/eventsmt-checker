@@ -16,7 +16,7 @@ from candidate_pipeline import CandidatePipeline,PipelineError,_key
 from git_checkpoint import encrypted_git_checkpoint
 from woopsocial_adapter import Provider
 from zernio_adapter import ZernioProvider, ZernioError, stable_idempotency_key
-from audio_review import verifier_with_silent_sources as review_verifier
+from automatic_audio import verifier as review_verifier, proofs as audio_proofs
 
 def run_candidate(snapshot,checkpoint,provider,key,data,project=None,account=None,title=None,description='',proof=None,verifier=None):
     pipeline=CandidatePipeline(snapshot,checkpoint,provider,verifier)
@@ -147,7 +147,7 @@ def reviewed_candidates(snapshot,verify):
     hash match are still required. Uncertain submissions are never advanced.
     """
     if verify is None: return []
-    proofs=snapshot.get('audio_reviews',{})
+    proofs=audio_proofs(snapshot)
     prepared=snapshot.get('prepared_media',{})
     deliveries=snapshot.get('candidate_deliveries',{})
     published=set(map(str,snapshot['ledger']['published_source_ids']))
@@ -260,7 +260,7 @@ def recover_uncertain_scheduled(snapshot,checkpoint,provider,verify,now=None):
         data=get_media(item.get('video_url'))
         if not isinstance(data,bytes) or hashlib.sha256(data).hexdigest()!=record['sha256']:
             continue
-        proof=snapshot.get('audio_reviews',{}).get(key)
+        proof=audio_proofs(snapshot).get(key)
         if not verify(item,data,proof):
             continue
         text=re.sub(r'https?://\S+','',str(item.get('text') or ''))
@@ -313,7 +313,7 @@ def main():
         if not project or not account: break
         reviewed_key=_key(reviewed)
         data=get_media(reviewed['video_url'])
-        state=publish_reviewed(s,cp,provider,reviewed,data,s.get('audio_reviews',{}).get(reviewed_key),verify,project,account)
+        state=publish_reviewed(s,cp,provider,reviewed,data,audio_proofs(s).get(reviewed_key),verify,project,account)
         print('Reviewed candidate submitted; delivery state:',state)
         return
     key,item=select_candidate(s)
