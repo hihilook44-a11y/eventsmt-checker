@@ -16,8 +16,8 @@ concurrency:
   cancel-in-progress: false
 jobs:
   scan:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with:
@@ -53,7 +53,7 @@ jobs:
             git push origin HEAD:main
           fi
       - name: Ensure video encoder is available
-        run: command -v ffmpeg >/dev/null && command -v ffprobe >/dev/null || (sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg)
+        run: command -v ffmpeg >/dev/null && command -v ffprobe >/dev/null || (timeout 90 sudo apt-get -o Acquire::Retries=1 -o Acquire::http::Timeout=15 update -qq && timeout 120 sudo apt-get -o Acquire::Retries=1 -o Acquire::http::Timeout=15 install -y -qq ffmpeg)
       - name: Verify synthetic pipeline and durable safeguards
         run: |
           python -m unittest discover -s private_queue -p 'test_candidate_recency.py' -v
@@ -85,7 +85,7 @@ jobs:
         env:
           PRIVATE_QUEUE_FERNET_KEY: ${{ secrets.PRIVATE_QUEUE_FERNET_KEY }}
         run: |
-          command -v ffprobe >/dev/null || (sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg)
+          command -v ffprobe >/dev/null || (timeout 90 sudo apt-get -o Acquire::Retries=1 -o Acquire::http::Timeout=15 update -qq && timeout 120 sudo apt-get -o Acquire::Retries=1 -o Acquire::http::Timeout=15 install -y -qq ffmpeg)
           for item in $(seq 1 12); do python private_queue/prepare_media.py; done
           git add private_queue/queue.enc
           if ! git diff --cached --quiet; then
