@@ -2,7 +2,7 @@ import copy, hashlib, tempfile, unittest
 from pathlib import Path
 from unittest.mock import patch
 from datetime import datetime, timezone
-from compilation_delivery import Delivery,choose_plan,metadata,render,sha
+from compilation_delivery import Delivery,choose_plan,metadata,render,sha,unused_rows
 
 class Provider:
  profile='project';account='account'
@@ -72,6 +72,10 @@ class Tests(unittest.TestCase):
   self.assertEqual(choose_plan([{'duration_seconds':599}]),[])
   self.assertEqual(len(choose_plan([{'duration_seconds':1000}])),1)
   self.assertEqual(len(choose_plan([{'duration_seconds':310},{'duration_seconds':300}])),2)
+ def test_next_batch_excludes_already_compiled_sources_and_bytes(self):
+  s={'compilation_attempts':{'previous':{'state':'published','source_keys':['1:1'],'source_sha256':['old']}}}
+  rows=[{'key':'1:2','sha256':'new'},{'key':'2:1','sha256':'old'},{'key':'3:1','sha256':'fresh'}]
+  self.assertEqual(unused_rows(s,rows),[rows[2]])
  def test_source_text_not_invented_in_title(self):
   title,description,anchor=metadata([{'post_id':'123','text':'اختبار الحدث https://example.com @test'}])
   self.assertEqual(anchor,'اختبار الحدث');self.assertIn('/status/123',description);self.assertNotIn('@test',title)

@@ -32,6 +32,12 @@ def choose_plan(rows):
         if total>=MIN: return out
     return []
 
+def unused_rows(snapshot, rows):
+    records=snapshot.get('compilation_attempts',{}).values()
+    used_sources={k.split(':')[0] for r in records if r.get('state')=='published' for k in r['source_keys']}
+    used_hashes={h for r in snapshot.get('compilation_attempts',{}).values() if r.get('state')=='published' for h in r['source_sha256']}
+    return [r for r in rows if r['key'].split(':')[0] not in used_sources and r['sha256'] not in used_hashes]
+
 def metadata(items):
     texts=[]
     for item in items:
@@ -164,7 +170,7 @@ def main():
     summary,rows=assess(snapshot,verify,return_plan=True)
     print(json.dumps(summary,sort_keys=True),flush=True)
     if not summary['eligible_for_preparation']:return
-    plan=choose_plan(rows)
+    plan=choose_plan(unused_rows(snapshot,rows))
     if not plan:
         print('No ten-minute batch of unique cleared source clips.');return
     with tempfile.TemporaryDirectory(prefix='eventsmt-final-') as d:
