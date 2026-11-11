@@ -43,6 +43,11 @@ class Tests(unittest.TestCase):
   bad=dict(self.proof,verdict='no_music_probability_high')
   with self.assertRaises(PipelineError):self.run_delivery(proof=bad)
   self.assertEqual((self.p.uploads,self.p.posts),(0,0));self.assertEqual(reviewed_candidates(self.s,None),[])
+ def test_model_result_alone_never_unlocks_publication(self):
+  self.s['audio_reviews']={}
+  self.s['music_triage']={KEY:{'classification':'inconclusive','sha256':H,'is_clearance':False}}
+  self.assertEqual(reviewed_candidates(self.s,self.v),[])
+  self.assertEqual((self.p.uploads,self.p.posts),(0,0))
  def test_resume_after_upload_without_reupload(self):
   from candidate_pipeline import CandidatePipeline
   pipeline=CandidatePipeline(self.s,self.cp,self.p,self.v);pipeline.upload(KEY,DATA,'project',self.proof)
