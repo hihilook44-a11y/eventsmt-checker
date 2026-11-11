@@ -8,6 +8,7 @@ print source identity, URL or audio. No mutation of signed reviews or deliveries
 import hashlib, json, math, os, subprocess, sys, tempfile
 from pathlib import Path
 from candidate_pipeline import _key
+from candidate_recency import newest_first
 
 MODEL_VERSION='yamnet-efficientat-20261111-v2-wholetrack'
 Y_SHA='d3835ffbbd4a1bb3e777f0ca217b5007907f5171dd5d17c4236b95b2af8f908e'
@@ -23,7 +24,7 @@ def model_path(path,digest):
 def select(s):
     prepared=s.get('prepared_media',{}); prior=s.get('music_triage',{}); reviewed=s.get('audio_reviews',{})
     published=set(map(str,s['ledger']['published_source_ids']))
-    for item in s['state']['pending']:
+    for item in newest_first(s['state']['pending']):
         key=_key(item); prep=prepared.get(key,{})
         if key.split(':')[0] in published or key in reviewed or prep.get('has_audio') is not True: continue
         old=prior.get(key,{})

@@ -18,6 +18,7 @@ from woopsocial_adapter import Provider
 from zernio_adapter import ZernioProvider, ZernioError, stable_idempotency_key
 from automatic_audio import verifier as review_verifier, proofs as audio_proofs
 from shorts_render import render_short, SHORTS_FORMAT
+from candidate_recency import newest_first, recent_short
 
 def run_candidate(snapshot,checkpoint,provider,key,data,project=None,account=None,title=None,description='',proof=None,verifier=None):
     pipeline=CandidatePipeline(snapshot,checkpoint,provider,verifier)
@@ -33,9 +34,9 @@ def select_candidate(s):
     prepared=s.get('prepared_media',{}); deliveries=s.get('candidate_deliveries',{})
     published=set(map(str,s['ledger']['published_source_ids']))
     available=[]
-    for item in s['state']['pending']:
+    for item in newest_first(s['state']['pending']):
         key=_key(item)
-        if key in prepared and key.split(':')[0] not in published and key not in deliveries:
+        if recent_short(item) and key in prepared and key.split(':')[0] not in published and key not in deliveries:
             available.append((key,item))
     # Register candidates already eligible for the audio gate first; registration
     # itself cannot upload, and publication still checks exact bytes and destination.
@@ -173,8 +174,9 @@ def reviewed_candidates(snapshot,verify):
     prepared=snapshot.get('prepared_media',{})
     deliveries=snapshot.get('candidate_deliveries',{})
     published=set(map(str,snapshot['ledger']['published_source_ids']))
-    return [item for item in snapshot['state']['pending']
-            if _key(item).split(':')[0] not in published
+    return [item for item in newest_first(snapshot['state']['pending'])
+            if recent_short(item)
+            and _key(item).split(':')[0] not in published
             and (_key(item) in proofs or prepared.get(_key(item),{}).get('has_audio') is False)
             and deliveries.get(_key(item),{}).get('state') in ('awaiting_audio_review','upload_complete')]
 
@@ -281,6 +283,8 @@ def recover_uncertain_scheduled(snapshot,checkpoint,provider,verify,now=None):
         if not provider.verify_destination(record['project'],record['account']) or not provider.verify_media(record['project'],record['media_id']):
             continue
         item=pending[0]
+        if not recent_short(item, now):
+            continue
         data=get_media(item.get('video_url'))
         if not isinstance(data,bytes) or hashlib.sha256(data).hexdigest()!=record['sha256']:
             continue

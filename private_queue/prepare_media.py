@@ -10,6 +10,7 @@ ROOT=Path(__file__).resolve().parent
 sys.path.insert(0,str(ROOT.parent))
 from secure_scan import read_key,load_snapshot,write_encrypted
 from woopsocial_adapter import Queue
+from candidate_recency import newest_first
 
 MAX_BYTES=100_000_000
 class SafeRedirect(urllib.request.HTTPRedirectHandler):
@@ -25,7 +26,7 @@ def check_url(url):
 def eligible(snapshot):
     ledger=set(map(str,snapshot['ledger']['published_source_ids']))
     already=snapshot.get('prepared_media',{})
-    for item in snapshot['state']['pending']:
+    for item in newest_first(snapshot['state']['pending']):
         source=str(item.get('post_id','')); media=str(item.get('media_id',''))
         if source.isdigit() and media.isdigit() and source not in ledger and source+':'+media not in already:
             return item

@@ -19,7 +19,7 @@ class Provider:
 def snapshot():
     scheduled=(NOW+timedelta(minutes=10)).isoformat().replace('+00:00','Z')
     idem=stable_idempotency_key(ACCOUNT,KEY,DIGEST)
-    item={'post_id':'123','media_id':'456','video_url':'https://cdn.example/a.mp4','text':'A reviewed clip https://x.com/post'}
+    item={'post_id':'123','media_id':'456','created_at':NOW.isoformat(),'video_url':'https://cdn.example/a.mp4','text':'A reviewed clip https://x.com/post'}
     record={'state':'delivery_uncertain','provider':'zernio','project':PROFILE,'account':ACCOUNT,
             'media_id':'https://media.zernio.com/a.mp4','scheduled_for':scheduled,
             'idempotency_key':idem,'sha256':DIGEST}
@@ -70,6 +70,12 @@ class RecoveryGateTests(unittest.TestCase):
         s=snapshot();p=Provider();s['candidate_deliveries'][KEY]['account']='wrong'
         result,_=self.run_recovery(s,p)
         self.assertFalse(result);self.assertEqual(len(p.posts),0)
+
+    def test_stale_source_is_not_retried(self):
+        s=snapshot();p=Provider();s['state']['pending'][0]['created_at']=(NOW-timedelta(days=2)).isoformat()
+        result,_=self.run_recovery(s,p)
+        self.assertFalse(result);self.assertEqual(p.posts,[])
+        self.assertEqual(s['candidate_deliveries'][KEY]['state'],'delivery_uncertain')
 
     def test_disabled_provider_does_not_retry(self):
         s=snapshot();p=Provider()

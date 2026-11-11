@@ -1,4 +1,5 @@
 import hashlib,subprocess,tempfile,unittest
+from datetime import datetime, timezone
 from pathlib import Path
 from cryptography.fernet import Fernet
 from secure_scan import load_snapshot
@@ -32,7 +33,7 @@ class WorkflowTest(unittest.TestCase):
     def test_select_candidate_prioritizes_low_risk_without_bypassing_gate(self):
         from unittest.mock import patch
         from music_triage import MODEL_VERSION
-        a={'post_id':'10','media_id':'10'}; b={'post_id':'20','media_id':'20'}
+        a={'post_id':'10','media_id':'10','created_at':datetime.now(timezone.utc).isoformat()}; b={'post_id':'20','media_id':'20','created_at':a['created_at']}
         digest='a'*64
         proof={'model_version':MODEL_VERSION,'sha256':digest,'classification':'low_risk','is_clearance':False,'assessment_scope':'entire_audio','yamnet_peak':.01,'efficientat_peak':.02,'duration_seconds':10}
         snapshot={'state':{'pending':[a,b]},'ledger':{'published_source_ids':[]},'prepared_media':{'10:10':{'sha256':'b'*64,'has_audio':True},'20:20':{'sha256':digest,'has_audio':True}},'music_triage':{'20:20':proof}}

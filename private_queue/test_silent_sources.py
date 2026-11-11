@@ -1,4 +1,5 @@
 import unittest,subprocess,tempfile
+from datetime import datetime, timezone
 from pathlib import Path
 from audio_review import has_no_audio_track,verifier_with_silent_sources
 from workflow_pipeline import reviewed_candidates
@@ -19,7 +20,7 @@ class NoAudio(unittest.TestCase):
  def test_audio_still_needs_review(self):
   v=verifier_with_silent_sources('');self.assertTrue(v({},self.no_audio,None));self.assertFalse(v({},self.with_audio,None))
  def test_false_not_missing_metadata(self):
-  items=[{'post_id':'1','media_id':'2'},{'post_id':'3','media_id':'4'},{'post_id':'5','media_id':'6'}]
+  items=[{'post_id':'1','media_id':'2','created_at':datetime.now(timezone.utc).isoformat()},{'post_id':'3','media_id':'4'},{'post_id':'5','media_id':'6'}]
   s={'state':{'pending':items},'ledger':{'published_source_ids':[]},'prepared_media':{'1:2':{'has_audio':False},'3:4':{'has_audio':True},'5:6':{}},'candidate_deliveries':{k:{'state':'awaiting_audio_review'} for k in ('1:2','3:4','5:6')}}
   self.assertEqual(reviewed_candidates(s,verifier_with_silent_sources('')),[items[0]])
 if __name__=='__main__':unittest.main()
