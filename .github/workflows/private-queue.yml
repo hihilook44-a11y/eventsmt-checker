@@ -47,6 +47,7 @@ jobs:
           fi
       - name: Verify synthetic pipeline and durable safeguards
         run: |
+          python -m unittest discover -s private_queue -p 'test_compilation_assessment.py' -v
           python -m unittest discover -s private_queue -p 'test_workflow_pipeline.py' -v
           python -m unittest discover -s private_queue -p 'test_reviewed_delivery.py' -v
           python -m unittest discover -s private_queue -p 'test_review_intake.py' -v
@@ -77,6 +78,15 @@ jobs:
             git commit -m 'Checkpoint encrypted audio-review preparation'
             git push origin HEAD:main
           fi
+      - name: Assess reviewed compilation readiness (no publication)
+        # Read-only: a 10-minute result is readiness, not a rendered video or delivery.
+        # Independent from Shorts ledger and stops on unresolved compilation attempts.
+        timeout-minutes: 4
+        continue-on-error: true
+        env:
+          PRIVATE_QUEUE_FERNET_KEY: ${{ secrets.PRIVATE_QUEUE_FERNET_KEY }}
+          AUDIO_REVIEW_PUBLIC_KEY: ${{ secrets.AUDIO_REVIEW_PUBLIC_KEY }}
+        run: python private_queue/compilation_assessment.py
       - name: Report incomplete source scan
         if: steps.source_scan.outcome == 'failure'
         run: |
