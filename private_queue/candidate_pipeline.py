@@ -66,7 +66,7 @@ class CandidatePipeline:
         self._checkpoint()
         return True
 
-    def upload(self,key,data,project,proof):
+    def upload(self,key,data,project,proof,render=None):
         self._guard()
         r=_record(self.s,key)
         if r['state']!='awaiting_audio_review': raise PipelineError('state blocks upload or retry')
@@ -78,10 +78,16 @@ class CandidatePipeline:
         if not self.review_verifier or not self.review_verifier(items[0],data,proof):
             raise PipelineError('authenticated complete audio review required')
         if not project: raise PipelineError('missing project')
+        # Verify source before transforming; retain source hash for audio proof and dedupe.
+        upload_data=render(data) if render is not None else data
+        if not isinstance(upload_data,bytes) or not upload_data: raise PipelineError('rendered media unavailable')
+        if render is not None:
+            from shorts_render import SHORTS_FORMAT
+            r.update(shorts_format=SHORTS_FORMAT, upload_sha256=hashlib.sha256(upload_data).hexdigest())
         # This durable checkpoint MUST succeed before invoking the remote write.
         r.update(state='upload_uncertain',project=project,provider=getattr(self.provider,'name','woopsocial'))
         self._checkpoint()
-        media=self.provider.upload(project,data)
+        media=self.provider.upload(project,upload_data)
         if not isinstance(media,str) or not media: raise PipelineError('upload outcome unknown')
         r.update(state='upload_complete',media_id=media)
         self._checkpoint()

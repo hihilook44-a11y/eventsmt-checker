@@ -17,6 +17,7 @@ from git_checkpoint import encrypted_git_checkpoint
 from woopsocial_adapter import Provider
 from zernio_adapter import ZernioProvider, ZernioError, stable_idempotency_key
 from automatic_audio import verifier as review_verifier, proofs as audio_proofs
+from shorts_render import render_short, SHORTS_FORMAT
 
 def run_candidate(snapshot,checkpoint,provider,key,data,project=None,account=None,title=None,description='',proof=None,verifier=None):
     pipeline=CandidatePipeline(snapshot,checkpoint,provider,verifier)
@@ -187,7 +188,7 @@ def zernio_scheduling_enabled(env=None):
     return env.get('ZERNIO_SCHEDULED_PUBLISHING_ENABLED','').strip().lower()=='true'
 
 
-def publish_reviewed(snapshot,checkpoint,provider,item,data,proof,verify,project,account):
+def publish_reviewed(snapshot,checkpoint,provider,item,data,proof,verify,project,account,shorts_renderer=None):
     if getattr(provider,'name','')=='zernio' and not zernio_scheduling_enabled():
         raise PipelineError('Zernio scheduled publishing is disabled')
     key=_key(item)
@@ -197,8 +198,10 @@ def publish_reviewed(snapshot,checkpoint,provider,item,data,proof,verify,project
     if record.get('sha256')!=hashlib.sha256(data).hexdigest(): raise PipelineError('media fingerprint mismatch')
     if key.split(':')[0] in set(map(str,snapshot['ledger']['published_source_ids'])): raise PipelineError('already published')
     pipeline=CandidatePipeline(snapshot,checkpoint,provider,verify)
-    if record.get('state')=='awaiting_audio_review': pipeline.upload(key,data,project,proof)
+    if record.get('state')=='awaiting_audio_review': pipeline.upload(key,data,project,proof,render=shorts_renderer)
     elif record.get('state')!='upload_complete': raise PipelineError('state blocks delivery')
+    if shorts_renderer is not None and record.get('shorts_format') != SHORTS_FORMAT:
+        raise PipelineError('previous upload is not verified Shorts format')
     if record.get('project')!=project: raise PipelineError('uploaded project changed')
     text=re.sub(r'https?://\S+','',str(item.get('text') or ''))
     text=' '.join(text.split())
@@ -313,7 +316,7 @@ def main():
         if not project or not account: break
         reviewed_key=_key(reviewed)
         data=get_media(reviewed['video_url'])
-        state=publish_reviewed(s,cp,provider,reviewed,data,audio_proofs(s).get(reviewed_key),verify,project,account)
+        state=publish_reviewed(s,cp,provider,reviewed,data,audio_proofs(s).get(reviewed_key),verify,project,account,shorts_renderer=render_short)
         print('Reviewed candidate submitted; delivery state:',state)
         return
     key,item=select_candidate(s)
