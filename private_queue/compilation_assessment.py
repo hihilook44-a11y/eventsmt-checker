@@ -26,7 +26,7 @@ def probe_bytes(data):
         if not math.isfinite(duration) or duration<=0 or not {'video','audio'} <= types: raise ValueError('invalid audio/video')
         return duration
 
-def assess(snapshot, verify, fetch=get_media, probe=probe_bytes):
+def assess(snapshot, verify, fetch=get_media, probe=probe_bytes, return_plan=False):
     if not callable(verify): raise ValueError('audio verification unavailable')
     items=snapshot.get('state',{}).get('pending')
     reviews=snapshot.get('audio_reviews',{})
@@ -74,10 +74,11 @@ def assess(snapshot, verify, fetch=get_media, probe=probe_bytes):
     seconds=sum(r['duration_seconds'] for r in eligible)
     # Errors are non-clearance and never count as usable time. This assessment
     # contains no source identifiers or links, keeping workflow logs private.
-    return {'reviewed_clips':len(eligible),'reviewed_seconds':round(seconds,3),
+    result = {'reviewed_clips':len(eligible),'reviewed_seconds':round(seconds,3),
             'eligible_for_preparation':not unresolved and seconds>=MIN_SECONDS,
             'blocked_by_prior_attempt':unresolved,'review_or_media_failures':errors,
             'publication_performed':False,'mode':'assessment_only'}
+    return (result, eligible) if return_plan else result
 
 def main():
     pub=os.environ.get('AUDIO_REVIEW_PUBLIC_KEY','')

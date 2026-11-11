@@ -132,6 +132,34 @@ class ZernioProvider:
         self._request('PUT', upload_url, content, 'video/mp4', authorized=False, accepted=(200, 201, 204))
         return public_url
 
+    def upload_image(self, project, content):
+        if project != self.profile or not isinstance(content, bytes) or not content or len(content)>2_000_000:
+            raise ValueError('invalid project or thumbnail')
+        presign=self._api('POST','/media/presign',{'filename':'eventsmt-thumbnail.jpg','contentType':'image/jpeg','size':len(content)})
+        upload_url,public_url=presign.get('uploadUrl'),presign.get('publicUrl')
+        parsed=urllib.parse.urlparse(public_url or '')
+        if not isinstance(upload_url,str) or not upload_url.startswith('https://') or parsed.scheme!='https' or parsed.hostname!='media.zernio.com' or not parsed.path.endswith('.jpg'):
+            raise ZernioError('thumbnail upload URL unavailable')
+        self._request('PUT',upload_url,content,'image/jpeg',authorized=False,accepted=(200,201,204))
+        return public_url
+
+    def publish_compilation(self, account, title, description, media_url, thumbnail_url, scheduled_for, idempotency_key):
+        if account!=self.account or not title or not self.verify_media(self.profile,media_url):
+            raise ValueError('destination or media mismatch')
+        parsed=urllib.parse.urlparse(thumbnail_url)
+        if parsed.scheme!='https' or parsed.hostname!='media.zernio.com' or not parsed.path.endswith('.jpg'):
+            raise ValueError('thumbnail mismatch')
+        payload={'content':description,'mediaItems':[{'type':'video','url':media_url,'thumbnail':thumbnail_url}],
+                 'platforms':[{'platform':'youtube','accountId':account,'scheduledFor':scheduled_for,
+                               'platformSpecificData':{'title':title[:100],'visibility':'public'}}],
+                 'timezone':'Europe/London','metadata':{'eventsmtPipelineKey':idempotency_key}}
+        result=self._api('POST','/posts',payload,{'Idempotency-Key':idempotency_key})
+        post=result.get('post') if isinstance(result,dict) else None
+        post_id=post.get('_id') if isinstance(post,dict) else None
+        if not isinstance(post_id,str) or not post_id or post.get('status') not in ('scheduled','publishing','published','partial','failed'):
+            raise ZernioError('scheduled compilation not confirmed')
+        return post_id
+
     def verify_media(self, project, media_url):
         return (project == self.profile and isinstance(media_url, str)
                 and media_url.startswith('https://media.zernio.com/')
