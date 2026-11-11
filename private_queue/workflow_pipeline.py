@@ -46,6 +46,25 @@ def select_candidate(s):
             return key,item
     return available[0] if available else (None,None)
 
+
+def register_and_deliver(snapshot, checkpoint, provider, item, data, verify,
+                         project, account, shorts_renderer=render_short):
+    """Register durably, then use the unchanged audio gate in the same cycle.
+
+    Registration must not impose another two-hour delay on a freshly assessed
+    eligible item. Missing/suspected proof still only registers for review.
+    """
+    key = _key(item)
+    result = run_candidate(snapshot, checkpoint, provider, key, data)
+    proof = audio_proofs(snapshot).get(key)
+    if (recent_short(item) and verify is not None and project and account
+            and verify(item, data, proof)):
+        return publish_reviewed(snapshot, checkpoint, provider, item, data, proof,
+                                verify, project, account,
+                                shorts_renderer=shorts_renderer)
+    return result
+
+
 def _legacy_provider_no_match(name, exc):
     """Only provider-declared bad-ID/not-found responses permit a read-only fallback."""
     text=str(exc)
@@ -348,8 +367,8 @@ def main():
     if item is None:
         print('No prepared candidate requiring registration.');return
     data=get_media(item['video_url'])
-    result=run_candidate(s,cp,provider,key,data)
-    print('Candidate registered:',result,'; no upload or publication.')
+    result=register_and_deliver(s,cp,provider,item,data,verify,project,account)
+    print('Candidate processing state:',result)
 
 if __name__=='__main__':
     try:main()
