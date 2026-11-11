@@ -3,7 +3,7 @@ from pathlib import Path
 from cryptography.fernet import Fernet
 from secure_scan import load_snapshot
 from git_checkpoint import encrypted_git_checkpoint
-from workflow_pipeline import run_candidate
+from workflow_pipeline import run_candidate,select_candidate
 from candidate_pipeline import CandidatePipeline,PipelineError
 
 def git(cwd,*args):
@@ -29,6 +29,17 @@ class WorkflowTest(unittest.TestCase):
     def saved(self):
         raw=subprocess.run(['git','show','main:private_queue/queue.enc'],cwd=self.remote,check=True,stdout=subprocess.PIPE).stdout
         return __import__('json').loads(self.f.decrypt(raw))
+    def test_select_candidate_prioritizes_low_risk_without_bypassing_gate(self):
+        from unittest.mock import patch
+        from music_triage import MODEL_VERSION
+        a={'post_id':'10','media_id':'10'}; b={'post_id':'20','media_id':'20'}
+        digest='a'*64
+        proof={'model_version':MODEL_VERSION,'sha256':digest,'classification':'low_risk','is_clearance':False,'assessment_scope':'entire_audio','yamnet_peak':.01,'efficientat_peak':.02,'duration_seconds':10}
+        snapshot={'state':{'pending':[a,b]},'ledger':{'published_source_ids':[]},'prepared_media':{'10:10':{'sha256':'b'*64,'has_audio':True},'20:20':{'sha256':digest,'has_audio':True}},'music_triage':{'20:20':proof}}
+        with patch.dict('os.environ',{'AUTOMATIC_AUDIO_RISK_ACCEPTED':'true'}): self.assertEqual(select_candidate(snapshot)[0],'20:20')
+        with patch.dict('os.environ',{'AUTOMATIC_AUDIO_RISK_ACCEPTED':'false'}): self.assertEqual(select_candidate(snapshot)[0],'10:10')
+        snapshot['ledger']['published_source_ids']=['20']
+        with patch.dict('os.environ',{'AUTOMATIC_AUDIO_RISK_ACCEPTED':'true'}): self.assertEqual(select_candidate(snapshot)[0],'10:10')
     def test_full_synthetic_draft_and_remote_checkpoints(self):
         p=FakeProvider();x=load_snapshot(self.f,self.repo/'private_queue'/'queue.enc')
         status=run_candidate(x,self.cp,p,self.key,self.data,'synthetic-project','synthetic-account','test','',True,lambda i,d,p:p is True)

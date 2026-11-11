@@ -2,6 +2,11 @@ name: Encrypted private candidate queue
 on:
   workflow_call:
   workflow_dispatch:
+    inputs:
+      skip_scan:
+        description: 'Use the existing queue without scanning the source'
+        type: boolean
+        default: false
   schedule:
     - cron: '11 */2 * * *'
 permissions:
@@ -26,6 +31,7 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
       - name: Scan into encrypted queue
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.skip_scan != true }}
         id: source_scan
         continue-on-error: true
         env:

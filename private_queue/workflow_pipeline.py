@@ -32,11 +32,18 @@ def run_candidate(snapshot,checkpoint,provider,key,data,project=None,account=Non
 def select_candidate(s):
     prepared=s.get('prepared_media',{}); deliveries=s.get('candidate_deliveries',{})
     published=set(map(str,s['ledger']['published_source_ids']))
+    available=[]
     for item in s['state']['pending']:
         key=_key(item)
         if key in prepared and key.split(':')[0] not in published and key not in deliveries:
+            available.append((key,item))
+    # Register candidates already eligible for the audio gate first; registration
+    # itself cannot upload, and publication still checks exact bytes and destination.
+    proofs=audio_proofs(s)
+    for key,item in available:
+        if key in proofs or prepared[key].get('has_audio') is False:
             return key,item
-    return None,None
+    return available[0] if available else (None,None)
 
 def _legacy_provider_no_match(name, exc):
     """Only provider-declared bad-ID/not-found responses permit a read-only fallback."""
