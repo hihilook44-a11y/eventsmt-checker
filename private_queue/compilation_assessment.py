@@ -9,6 +9,7 @@ produce a title, thumbnail, render, or provider submission.
 import hashlib, json, math, os, subprocess, sys, tempfile
 from pathlib import Path
 from candidate_pipeline import _key
+from compilation_sources import candidates
 from audio_review import verifier
 from prepare_media import get_media
 from secure_scan import read_key, load_snapshot
@@ -28,7 +29,7 @@ def probe_bytes(data):
 
 def assess(snapshot, verify, fetch=get_media, probe=probe_bytes, return_plan=False):
     if not callable(verify): raise ValueError('audio verification unavailable')
-    items=snapshot.get('state',{}).get('pending')
+    items=candidates(snapshot)
     reviews=snapshot.get('audio_reviews',{})
     prepared=snapshot.get('prepared_media',{})
     attempts=snapshot.get('compilation_attempts',{})

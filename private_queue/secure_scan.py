@@ -54,6 +54,8 @@ def scan():
         except (json.JSONDecodeError,OSError):
             print('Invalid scanner response; encrypted state preserved.',file=sys.stderr);return 1
         if not isinstance(updated.get('pending'),list): raise RuntimeError('invalid scanner output')
+        from compilation_sources import retain_reviewed_sources
+        retain_reviewed_sources(snapshot)
         snapshot['state']=updated
         write_encrypted(f,snapshot)
         print(json.dumps({k:result.get(k) for k in SUMMARY_FIELDS}))

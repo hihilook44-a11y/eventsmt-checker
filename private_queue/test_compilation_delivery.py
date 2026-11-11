@@ -88,6 +88,8 @@ class Tests(unittest.TestCase):
    from compilation_assessment import probe_bytes
    dur=probe_bytes(data)
    s={'state':{'pending':[{'post_id':'1','media_id':'1','video_url':'fake','text':'تجربة'}]},'prepared_media':{'1:1':{'sha256':digest}},'audio_reviews':{'1:1':{'synthetic':True}}}
+   # Archived Shorts must render even after discovery removes them from pending.
+   s['compilation_sources']={'1:1':s['state']['pending'].pop()}
    plan=[{'key':'1:1','sha256':digest,'duration_seconds':dur}]
    # Reduced duration only in this isolated media integration test. Production is 600 seconds.
    with patch('compilation_delivery.MIN',3):

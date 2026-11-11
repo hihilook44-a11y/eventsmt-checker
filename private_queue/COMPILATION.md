@@ -10,6 +10,8 @@ The workflow automatically:
 1. Reconciles known compilation post IDs against the exact YouTube destination.
 2. Downloads candidate files and checks full-audio, exact-byte signed proofs.
 3. Selects full unique source clips until their total reaches at least 600 seconds.
+   Exact source metadata is retained in the encrypted compilation archive before
+   published Shorts leave the discovery queue. The archive grants no audio clearance.
    Previously posted Shorts can be compilation material, but previously compiled
    sources or identical media cannot be reused. Footage is never looped/padded.
 4. Re-verifies bytes and proofs immediately before normalizing to 1280x720, 25fps,

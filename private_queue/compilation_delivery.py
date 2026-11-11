@@ -11,6 +11,7 @@ sys.path[:0]=[str(HERE),str(HERE.parent)]
 from compilation_assessment import assess, probe_bytes
 from audio_review import verifier
 from candidate_pipeline import _key
+from compilation_sources import candidates
 from secure_scan import read_key,load_snapshot
 from prepare_media import get_media
 from git_checkpoint import encrypted_git_checkpoint
@@ -72,7 +73,7 @@ def thumbnail(frames,dest,anchor):
 
 def render(snapshot,plan,verify,output,thumb,fetch=get_media):
     if not plan or sum(r['duration_seconds'] for r in plan)<MIN: raise ValueError('insufficient duration')
-    items_by_key={_key(i):i for i in snapshot['state']['pending']}
+    items_by_key={_key(i):i for i in candidates(snapshot)}
     if len({r['key'].split(':')[0] for r in plan})!=len(plan) or len({r['sha256'] for r in plan})!=len(plan):
         raise ValueError('duplicate source or media')
     items=[]
