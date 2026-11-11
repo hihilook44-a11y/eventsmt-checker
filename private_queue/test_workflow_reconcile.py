@@ -46,6 +46,14 @@ class Tests(unittest.TestCase):
   self.assertEqual(s['candidate_deliveries']['12:34']['state'],'delivery_recorded')
   self.assertEqual(s['ledger']['published_source_ids'],[])
   self.assertEqual(writes,[])
+ def test_zernio_published_before_scheduled_time_does_not_enter_ledger(self):
+  s=snapshot();r=s['candidate_deliveries']['12:34'];r['provider']='zernio';r['scheduled_for']='2999-01-01T00:00:00Z';writes=[];p=P('PUBLISHED')
+  reconcile_known_deliveries(s,lambda state:writes.append(1),p,{'zernio':p})
+  self.assertEqual(r['state'],'delivery_scheduled');self.assertEqual(s['ledger']['published_source_ids'],[]);self.assertEqual(writes,[1])
+ def test_zernio_malformed_scheduled_time_never_marks_published(self):
+  s=snapshot();r=s['candidate_deliveries']['12:34'];r['provider']='zernio';r['scheduled_for']='bad';p=P('PUBLISHED')
+  with self.assertRaisesRegex(PipelineError,'invalid scheduled publication time'):reconcile_known_deliveries(s,lambda state:None,p,{'zernio':p})
+  self.assertEqual(s['ledger']['published_source_ids'],[])
  def test_zernio_scheduled_receipt_is_checkpointed(self):
   s=snapshot();s['candidate_deliveries']['12:34']['provider']='zernio';writes=[];p=P('SCHEDULED')
   reconcile_known_deliveries(s,lambda s:writes.append(1),p,{'zernio':p})

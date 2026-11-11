@@ -107,6 +107,20 @@ def reconcile_known_deliveries(snapshot,checkpoint,provider,providers=None):
         pipeline=CandidatePipeline(snapshot,checkpoint,selected)
         status=row.get('deliveryStatus')
         if status=='PUBLISHED':
+            # Zernio can report published as soon as YouTube accepts a video
+            # that remains private until its scheduled public time. Do not
+            # finalize the ledger before that time; this does not itself prove
+            # that YouTube made the video public afterward.
+            if selected_name=='zernio' and record.get('scheduled_for'):
+                try:
+                    scheduled=datetime.fromisoformat(str(record['scheduled_for']).replace('Z','+00:00'))
+                    if scheduled.tzinfo is None: raise ValueError('missing timezone')
+                except (TypeError,ValueError):
+                    raise PipelineError('invalid scheduled publication time')
+                if datetime.now(timezone.utc)<scheduled.astimezone(timezone.utc):
+                    if record.get('state')!='delivery_scheduled':
+                        record['state']='delivery_scheduled'; checkpoint(snapshot)
+                    continue
             pipeline.reconcile_published(key)
         elif selected_name=='zernio' and status=='SCHEDULED' and record.get('state')!='delivery_scheduled':
             record['state']='delivery_scheduled'; checkpoint(snapshot)
