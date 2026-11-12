@@ -1,6 +1,6 @@
 import unittest,hashlib
 from copy import deepcopy
-from music_triage import triage_one,select,MODEL_VERSION
+from music_triage import triage_one,triage_batch,select,MODEL_VERSION
 class Tests(unittest.TestCase):
  def setUp(self):
   self.data=b'correct';self.key='1:2';self.s={'ledger':{'published_source_ids':[]},'state':{'pending':[{'post_id':'1','media_id':'2','video_url':'fake'}]},'prepared_media':{self.key:{'has_audio':True,'sha256':hashlib.sha256(self.data).hexdigest()}}}
@@ -29,4 +29,19 @@ class Tests(unittest.TestCase):
   self.s['audio_reviews']={self.key:{}};self.assertIsNone(select(self.s));self.s['audio_reviews']={};self.s['prepared_media'][self.key]['has_audio']=False;self.assertIsNone(select(self.s))
  def test_other_models_reassessed(self):
   self.s['music_triage']={self.key:{'sha256':self.s['prepared_media'][self.key]['sha256'],'model_version':'old'}};self.assertTrue(triage_one(self.s,self.fetch,self.score))
+ def test_failed_candidate_skipped_and_success_is_saved(self):
+  bad={'post_id':'2','media_id':'3','video_url':'bad'};good=self.s['state']['pending'][0]
+  self.s['state']['pending']=[bad,good]
+  self.s['prepared_media']['2:3']={'has_audio':True,'sha256':hashlib.sha256(self.data).hexdigest()}
+  seen=[]
+  def fetch(url):
+   if url=='bad':raise ValueError('bad media')
+   return self.data
+  saved,failed=triage_batch(self.s,lambda state:seen.append(deepcopy(state)),fetch,self.score)
+  self.assertEqual((saved,failed),(1,1));self.assertEqual(len(seen),1)
+  self.assertNotIn('2:3',self.s.get('music_triage',{}));self.assertIn(self.key,self.s['music_triage'])
+  self.assertNotIn('candidate_deliveries',self.s)
+ def test_save_failure_propagates(self):
+  def save(_):raise RuntimeError('disk')
+  with self.assertRaises(RuntimeError):triage_batch(self.s,save,self.fetch,self.score)
 if __name__=='__main__':unittest.main()

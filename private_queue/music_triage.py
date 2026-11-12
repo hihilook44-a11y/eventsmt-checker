@@ -21,11 +21,13 @@ def model_path(path,digest):
     if hashlib.sha256(p.read_bytes()).hexdigest()!=digest: raise ValueError('model hash mismatch')
     return p
 
-def select(s):
+def select(s, excluded=None):
+    excluded = excluded or set()
     prepared=s.get('prepared_media',{}); prior=s.get('music_triage',{}); reviewed=s.get('audio_reviews',{})
     published=set(map(str,s['ledger']['published_source_ids']))
     for item in newest_first(s['state']['pending']):
         key=_key(item); prep=prepared.get(key,{})
+        if key in excluded: continue
         if key.split(':')[0] in published or key in reviewed or prep.get('has_audio') is not True: continue
         old=prior.get(key,{})
         if old.get('sha256')==prep.get('sha256') and old.get('model_version')==MODEL_VERSION: continue
@@ -67,11 +69,11 @@ def score(data, model_dir):
             'assessment_scope':'entire_audio',
             'classification':'music_suspected' if max(ym,em)>=0.05 else 'low_risk'}
 
-def triage_one(s,fetch=None,scorer=None):
+def triage_one(s,fetch=None,scorer=None,excluded=None):
     if fetch is None:
         from prepare_media import get_media
         fetch=get_media
-    item=select(s)
+    item=select(s,excluded)
     if item is None:return False
     key=_key(item);data=fetch(item['video_url']);digest=hashlib.sha256(data).hexdigest()
     if digest!=s['prepared_media'][key].get('sha256'):raise ValueError('prepared bytes changed')
@@ -81,14 +83,29 @@ def triage_one(s,fetch=None,scorer=None):
     s.setdefault('music_triage',{})[key]={**result,'sha256':digest,'model_version':MODEL_VERSION,'is_clearance':False}
     return True
 
+def triage_batch(s, save, fetch=None, scorer=None, limit=12):
+    # A single unreadable or changed clip must not starve other clips. No score
+    # means no clearance; only successful exact-byte assessments are saved.
+    excluded=set(); saved=failed=0
+    for _ in range(limit):
+        item=select(s,excluded)
+        if item is None: break
+        key=_key(item)
+        try:
+            changed=triage_one(s,fetch,scorer,excluded)
+        except Exception:
+            excluded.add(key); failed+=1
+            continue
+        if changed:
+            save(s); saved+=1
+    return saved,failed
+
 def main():
     from secure_scan import read_key, load_snapshot, write_encrypted
     f=read_key();s=load_snapshot(f)
-    count=0
-    for _ in range(12):
-        if not triage_one(s):break
-        write_encrypted(f,s);count+=1
-    print('Probabilistic whole-track assessments saved:',count,'; not human reviews.')
+    saved,failed=triage_batch(s,lambda obj:write_encrypted(f,obj))
+    print('Probabilistic whole-track assessments saved:',saved,'; failed or unreadable:',failed,'; not human reviews.')
+    if failed: raise ValueError('one or more assessments failed closed')
 if __name__=='__main__':
     try:main()
     except Exception as exc:

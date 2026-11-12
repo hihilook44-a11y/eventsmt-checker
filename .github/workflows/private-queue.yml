@@ -120,12 +120,16 @@ jobs:
           echo 'd3835ffbbd4a1bb3e777f0ca217b5007907f5171dd5d17c4236b95b2af8f908e  '"$MUSIC_MODEL_DIR"'/yamnet.onnx' | sha256sum --check --strict
           echo 'f11d0be24823294117798e3c385f53c8193e61e68637fcdd78df32313c4463bd  '"$MUSIC_MODEL_DIR"'/mn10_as.onnx' | sha256sum --check --strict
           python -m pip install 'numpy==1.26.4' 'onnxruntime==1.20.1'
-          python private_queue/music_triage.py
+          # Save successful assessments even if another clip fails closed.
+          # The following delivery step requires a clean, synchronized checkout.
+          triage_status=0
+          python private_queue/music_triage.py || triage_status=$?
           git add private_queue/queue.enc
           if ! git diff --cached --quiet; then
             git commit -m 'Checkpoint encrypted audio risk assessment'
             git push origin HEAD:main
           fi
+          exit "$triage_status"
       - name: Process conservatively classified audio after assessment
         # Owner accepted detector errors; suspected/failed audio remains blocked.
         env:
