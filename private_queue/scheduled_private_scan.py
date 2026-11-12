@@ -78,6 +78,7 @@ def main():
         # The public /media route has recently returned intermittent 404/500s,
         # while /statuses is currently serving video posts reliably. Prefer the
         # broader timeline and retain strict overlap checks before advancing state.
+        partial_result=None
         for endpoint,count,pages in (("statuses",100,min(20,a.max_pages * 4)),("media",100,a.max_pages),("media",50,a.max_pages)):
             scan=run(pages,count,endpoint)
             try:
@@ -88,6 +89,26 @@ def main():
                     m=re.match(r'Page (\d+): HTTPError: HTTP Error (\d{3}):',str(error))
                     if m: reasons.append('page='+m.group(1)+' http='+m.group(2))
                 continue
+            if stats['partial_scan']:
+                # Preserve the validated overlapping batch, but try the other
+                # routes for a clean scan before settling on a frozen checkpoint.
+                if partial_result is None:
+                    partial_result=(updated,stats,scan,endpoint,count)
+                continue
+            if partial_result is not None:
+                # Keep candidates already found in the earlier validated partial
+                # batch; the later scan still must independently reach the old
+                # checkpoint and can never authorize unchecked publication.
+                prior_state,prior_stats,_,_,_=partial_result
+                updated,stats=apply_scan(scan,ledger,prior_state,started_at)
+                stats['new_candidates']+=prior_stats['new_candidates']
+            atomic_write(statepath,updated)
+            print(json.dumps({**stats,'pages_checked':len(scan['pages']),'page_size':count,
+                              'more_pages_available':scan['next_cursor_available'],'endpoint':endpoint,
+                              'publication_performed':False,'audio_verified':False}))
+            return 0
+        if partial_result is not None:
+            updated,stats,scan,endpoint,count=partial_result
             atomic_write(statepath,updated)
             print(json.dumps({**stats,'pages_checked':len(scan['pages']),'page_size':count,
                               'more_pages_available':scan['next_cursor_available'],'endpoint':endpoint,

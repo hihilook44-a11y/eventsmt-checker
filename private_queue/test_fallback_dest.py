@@ -101,3 +101,28 @@ class FallbackScan(unittest.TestCase):
    saved=json.loads(a.read_text())
    self.assertEqual(saved['last_successful_scan_epoch'],100)
    self.assertEqual(saved['last_partial_scan_epoch'],200)
+
+class PartialFallbackTests(unittest.TestCase):
+ def run_scans(self,scans):
+  import json,tempfile,sys
+  from pathlib import Path
+  import scheduled_private_scan as m
+  with tempfile.TemporaryDirectory() as d:
+   a=Path(d)/'state.json';b=Path(d)/'ledger.json'
+   a.write_text(json.dumps({'version':1,'baseline_epoch':50,'last_successful_scan_epoch':100,'seen_keys':[],'pending':[]}));b.write_text('{"published_source_ids": []}')
+   with patch.object(sys,'argv',['scan','--state',str(a),'--ledger',str(b)]),patch.object(m,'run',side_effect=scans) as call,patch.object(m.time,'time',return_value=200):
+    result=m.main()
+   return result,json.loads(a.read_text()),call.call_count
+ def test_later_clean_route_advances_checkpoint_after_partial(self):
+  partial={'errors':['Page 2: HTTPError: HTTP Error 404: Not Found'],'pages':[{'page':1,'timestamps':[100]}], 'candidates':[],'next_cursor_available':True,'end_of_timeline_seen':False}
+  clean={'errors':[],'pages':[{'page':1,'timestamps':[100]}], 'candidates':[],'next_cursor_available':True,'end_of_timeline_seen':False}
+  result,s,count=self.run_scans([partial,clean]);self.assertEqual(result,0);self.assertEqual(s['last_successful_scan_epoch'],200);self.assertEqual(count,2)
+ def test_all_partial_or_failed_preserves_old_checkpoint(self):
+  partial={'errors':['Page 2: HTTPError: HTTP Error 404: Not Found'],'pages':[{'page':1,'timestamps':[100]}], 'candidates':[],'next_cursor_available':True,'end_of_timeline_seen':False}
+  failed={'errors':['Page 1: HTTPError: HTTP Error 404: Not Found'],'pages':[], 'candidates':[],'next_cursor_available':False}
+  result,s,count=self.run_scans([partial,failed,failed]);self.assertEqual(result,0);self.assertEqual(s['last_successful_scan_epoch'],100);self.assertEqual(count,3)
+ def test_clean_fallback_retains_and_deduplicates_partial_candidates(self):
+  item={'post_id':'123','media_id':'456','created_at':'1970-01-01T00:02:30+00:00','music_checked':False,'published':False}
+  partial={'errors':['Page 2: HTTPError: HTTP Error 404: Not Found'],'pages':[{'page':1,'timestamps':[100]}], 'candidates':[item],'next_cursor_available':True,'end_of_timeline_seen':False}
+  clean={'errors':[],'pages':[{'page':1,'timestamps':[100]}], 'candidates':[item],'next_cursor_available':True,'end_of_timeline_seen':False}
+  result,s,count=self.run_scans([partial,clean]);self.assertEqual(result,0);self.assertEqual(len(s['pending']),1);self.assertEqual(s['pending'][0]['post_id'],'123');self.assertEqual(s['last_successful_scan_epoch'],200)
