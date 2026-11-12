@@ -22,6 +22,11 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: main
+      - name: Acquire encrypted queue lease and refresh checkout
+        run: |
+          python3 scripts/queue_lease.py acquire --token "$RUNNER_TEMP/queue-lease" --wait 180
+          git fetch origin main
+          git reset --hard FETCH_HEAD
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -160,3 +165,6 @@ jobs:
         run: |
           echo 'Source scan failed; prior encrypted queue was used and no source absence was inferred.' >&2
           exit 1
+      - name: Release encrypted queue lease
+        if: ${{ always() }}
+        run: python3 scripts/queue_lease.py release --token "$RUNNER_TEMP/queue-lease"

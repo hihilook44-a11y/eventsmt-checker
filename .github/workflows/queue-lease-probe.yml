@@ -1,0 +1,23 @@
+name: Encrypted queue lease read-only probe
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Acquire encrypted queue lease and refresh checkout
+        run: |
+          python3 scripts/queue_lease.py acquire --token "$RUNNER_TEMP/queue-lease" --wait 30
+          git fetch origin main
+          git reset --hard FETCH_HEAD
+      - name: Verify lease marker
+        run: test -s "$RUNNER_TEMP/queue-lease"
+      - name: Release encrypted queue lease
+        if: ${{ always() }}
+        run: python3 scripts/queue_lease.py release --token "$RUNNER_TEMP/queue-lease"

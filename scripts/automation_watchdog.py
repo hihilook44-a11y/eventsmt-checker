@@ -45,6 +45,15 @@ def main():
     with open(str(a.state)+'.lock','a') as lock:
         os.chmod(str(a.state)+'.lock',0o600);fcntl.flock(lock,fcntl.LOCK_EX)
         state=json.loads(a.state.read_text()) if a.state.exists() else {}
+        fallback={'state':'not_requested'}
+        if a.apply:
+            try:
+                local=subprocess.run(['python3','scripts/local_source_fallback.py'],capture_output=True,text=True,timeout=360)
+                if local.returncode: fallback={'state':'failed_safely'}
+                else:
+                    try: fallback=json.loads(local.stdout.strip().splitlines()[-1])
+                    except (IndexError,ValueError):fallback={'state':'invalid_result'}
+            except (subprocess.TimeoutExpired,OSError):fallback={'state':'outcome_unknown'}
         now=datetime.now(timezone.utc);out=[]
         for workflow,interval in WORKFLOWS.items():
             r=call(['run','list','-R',REPO,'--workflow',workflow,'--limit','30','--json','databaseId,event,status,conclusion,createdAt,url'])
@@ -60,5 +69,5 @@ def main():
                     state[workflow]['state']='unknown';atomic(a.state,state);raise
                 atomic(a.state,state);item['dispatch']=state[workflow]['state']
             out.append(item)
-        print(json.dumps({'checked_at':now.isoformat(),'applied':a.apply,'workflows':out}))
+        print(json.dumps({'checked_at':now.isoformat(),'applied':a.apply,'fallback':fallback,'workflows':out}))
 if __name__=='__main__':main()
