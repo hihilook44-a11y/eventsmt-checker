@@ -10,7 +10,7 @@ import hashlib, json, math, os, subprocess, sys, tempfile
 from pathlib import Path
 from candidate_pipeline import _key
 from compilation_sources import candidates
-from automatic_audio import verifier, proofs as audio_proofs
+from automatic_audio import verifier, proofs as audio_proofs, MAX_DURATION
 from prepare_media import get_media
 from secure_scan import read_key, load_snapshot
 
@@ -30,7 +30,7 @@ def probe_bytes(data):
 def assess(snapshot, verify, fetch=get_media, probe=probe_bytes, return_plan=False):
     if not callable(verify): raise ValueError('audio verification unavailable')
     items=candidates(snapshot)
-    reviews=audio_proofs(snapshot)
+    reviews=audio_proofs(snapshot, MAX_DURATION)
     prepared=snapshot.get('prepared_media',{})
     attempts=snapshot.get('compilation_attempts',{})
     if not isinstance(items,list) or not isinstance(reviews,dict) or not isinstance(prepared,dict) or not isinstance(attempts,dict): raise ValueError('invalid snapshot')
@@ -83,7 +83,7 @@ def assess(snapshot, verify, fetch=get_media, probe=probe_bytes, return_plan=Fal
 
 def main():
     pub=os.environ.get('AUDIO_REVIEW_PUBLIC_KEY','')
-    verify=verifier(pub)
+    verify=verifier(pub, MAX_DURATION)
     result=assess(load_snapshot(read_key()),verify)
     print(json.dumps(result,sort_keys=True))
 

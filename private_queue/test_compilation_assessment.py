@@ -57,4 +57,17 @@ class Tests(unittest.TestCase):
  def test_attempt_missing_source_list_blocks(self):
   self.s['compilation_attempts']={'x':{'state':'published'}}
   with self.assertRaises(ValueError):self.a()
+ def test_low_risk_long_audio_counts_for_compilation_only(self):
+  from automatic_audio import verifier,proofs
+  from music_triage import MODEL_VERSION
+  from unittest.mock import patch
+  import os
+  k='1:2'; digest=self.s['prepared_media'][k]['sha256']
+  proof={'model_version':MODEL_VERSION,'sha256':digest,'classification':'low_risk','is_clearance':False,'assessment_scope':'entire_audio','yamnet_peak':.01,'efficientat_peak':.01,'duration_seconds':219}
+  self.s['audio_reviews'].pop(k);self.s['music_triage']={k:proof}
+  with patch.dict(os.environ,{'AUTOMATIC_AUDIO_RISK_ACCEPTED':'true'}):
+   self.assertNotIn(k,proofs(self.s))
+   r=assess(self.s,verifier('',240),self.fetch,lambda _:219)
+   self.assertEqual(r['reviewed_clips'],1)
+   self.assertEqual(r['reviewed_seconds'],219)
 if __name__=='__main__':unittest.main()

@@ -19,4 +19,15 @@ class Tests(unittest.TestCase):
   s={'music_triage':{'1:2':self.p},'prepared_media':{'1:2':{'sha256':self.digest}},'audio_reviews':{}}
   with patch.dict(os.environ,{'AUTOMATIC_AUDIO_RISK_ACCEPTED':'true'}):self.assertIn('1:2',proofs(s))
   self.assertEqual(s['audio_reviews'],{})
+ def test_long_whole_track_is_compilation_only(self):
+  p={**self.p,'duration_seconds':219}
+  snap={'music_triage':{'1:2':p},'prepared_media':{'1:2':{'sha256':self.digest}},'audio_reviews':{}}
+  with patch.dict(os.environ,{'AUTOMATIC_AUDIO_RISK_ACCEPTED':'true'}):
+   self.assertFalse(low_risk(p,self.digest))
+   self.assertNotIn('1:2',proofs(snap))
+   self.assertTrue(low_risk(p,self.digest,240))
+   self.assertIn('1:2',proofs(snap,240))
+   self.assertFalse(low_risk({**p,'duration_seconds':241},self.digest,240))
+   self.assertFalse(low_risk({**p,'assessment_scope':'sample'},self.digest,240))
+   self.assertFalse(low_risk(p,'0'*64,240))
 if __name__=='__main__':unittest.main()

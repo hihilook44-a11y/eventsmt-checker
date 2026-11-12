@@ -1,7 +1,7 @@
 """Encrypted source retention for compilations; never an audio or publish permission."""
 from copy import deepcopy
 from candidate_pipeline import _key
-from automatic_audio import proofs as audio_proofs
+from automatic_audio import proofs as audio_proofs, MAX_DURATION
 
 
 def retain_reviewed_sources(snapshot):
@@ -13,7 +13,7 @@ def retain_reviewed_sources(snapshot):
     archive = snapshot.setdefault('compilation_sources', {})
     if not isinstance(archive, dict):
         raise ValueError('invalid compilation source archive')
-    reviews = audio_proofs(snapshot)
+    reviews = audio_proofs(snapshot, MAX_DURATION)
     prepared = snapshot.get('prepared_media', {})
     for item in snapshot.get('state', {}).get('pending', []):
         key = _key(item)

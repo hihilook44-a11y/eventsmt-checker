@@ -9,7 +9,7 @@ from pathlib import Path
 HERE=Path(__file__).resolve().parent
 sys.path[:0]=[str(HERE),str(HERE.parent)]
 from compilation_assessment import assess, probe_bytes
-from automatic_audio import verifier, proofs as audio_proofs
+from automatic_audio import verifier, proofs as audio_proofs, MAX_DURATION
 from candidate_pipeline import _key
 from compilation_sources import candidates
 from secure_scan import read_key,load_snapshot
@@ -83,7 +83,7 @@ def render(snapshot,plan,verify,output,thumb,fetch=get_media):
             item=items_by_key[row['key']];data=fetch(item['video_url'])
             if sha(data)!=row['sha256'] or snapshot.get('prepared_media',{}).get(row['key'],{}).get('sha256')!=sha(data):
                 raise ValueError('source changed')
-            if not verify(item,data,audio_proofs(snapshot).get(row['key'])): raise ValueError('source not cleared')
+            if not verify(item,data,audio_proofs(snapshot, MAX_DURATION).get(row['key'])): raise ValueError('source not cleared')
             duration=probe_bytes(data)
             if abs(duration-row['duration_seconds'])>.1: raise ValueError('duration changed')
             src=base/f'{n}.mp4';src.write_bytes(data);os.chmod(src,0o600)
@@ -167,7 +167,7 @@ def main():
     f=read_key();snapshot=load_snapshot(f)
     provider=ZernioProvider();cp=lambda s:encrypted_git_checkpoint(HERE.parent,f,s)
     delivery=Delivery(snapshot,cp,provider);delivery.reconcile()
-    verify=verifier(os.environ.get('AUDIO_REVIEW_PUBLIC_KEY',''))
+    verify=verifier(os.environ.get('AUDIO_REVIEW_PUBLIC_KEY',''), MAX_DURATION)
     summary,rows=assess(snapshot,verify,return_plan=True)
     print(json.dumps(summary,sort_keys=True),flush=True)
     if not summary['eligible_for_preparation']:return

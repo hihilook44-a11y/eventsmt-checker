@@ -14,7 +14,7 @@ MODEL_VERSION='yamnet-efficientat-20261111-v2-wholetrack'
 Y_SHA='d3835ffbbd4a1bb3e777f0ca217b5007907f5171dd5d17c4236b95b2af8f908e'
 E_SHA='f11d0be24823294117798e3c385f53c8193e61e68637fcdd78df32313c4463bd'
 THRESHOLD=0.10
-MAX_DURATION=180.0
+MAX_DURATION=240.0  # Whole audio is still required; longer media stays blocked.
 
 def model_path(path,digest):
     p=Path(path)
