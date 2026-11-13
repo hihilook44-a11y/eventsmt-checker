@@ -11,11 +11,16 @@ concurrency:
 jobs:
   check:
     runs-on: ubuntu-latest
-    timeout-minutes: 3
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
         with:
           ref: main
+      - name: Acquire shared writer lease and refresh checkout
+        run: |
+          python3 scripts/queue_lease.py acquire --token "$RUNNER_TEMP/source-writer-lease" --wait 180
+          git fetch origin main
+          git reset --hard FETCH_HEAD
       - name: Check source
         env:
           SOURCE_HANDLE: ${{ secrets.SOURCE_HANDLE }}
@@ -29,6 +34,9 @@ jobs:
             git commit -m 'Update public source ID dedup state'
             git push origin HEAD:main
           fi
+      - name: Release shared writer lease
+        if: ${{ always() }}
+        run: python3 scripts/queue_lease.py release --token "$RUNNER_TEMP/source-writer-lease"
 
   backup-private-queue:
     needs: check
