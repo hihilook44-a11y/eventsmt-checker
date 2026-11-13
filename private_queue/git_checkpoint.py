@@ -4,16 +4,41 @@ Requires a clean tracked checkout on main. No rebase/force push: an uncertain or
 conflicting push stops the caller. Remote provider writes must be started only after
 this function succeeds. Queue content is always encrypted before staging.
 """
-import subprocess
+import subprocess, os, signal
 from pathlib import Path
 from secure_scan import write_encrypted
 
 class CheckpointError(RuntimeError): pass
 
 def cmd(repo,*args):
-    p=subprocess.run(['git',*args],cwd=repo,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,timeout=45)
-    if p.returncode: raise CheckpointError('git checkpoint operation failed: '+args[0])
-    return p.stdout.strip()
+    # Kill the entire Git process group on timeout; git may have spawned a
+    # remote helper which otherwise continues after the caller has stopped.
+    proc=subprocess.Popen(['git',*args],cwd=repo,stdout=subprocess.PIPE,
+                          stderr=subprocess.PIPE,text=True,start_new_session=True)
+    try:
+        out,err=proc.communicate(timeout=90)
+    except subprocess.TimeoutExpired:
+        try: os.killpg(proc.pid,signal.SIGKILL)
+        except ProcessLookupError: pass
+        proc.communicate()
+        raise CheckpointError('git checkpoint operation timed out: '+args[0]) from None
+    if proc.returncode: raise CheckpointError('git checkpoint operation failed: '+args[0])
+    return out.strip()
+
+def push_checkpoint(repo):
+    # A timeout or transport error is not proof that a push failed. Never push
+    # again here: accept it only if a fresh remote read shows this exact commit.
+    expected=cmd(repo,'rev-parse','HEAD')
+    try:
+        cmd(repo,'push','origin','HEAD:main')
+    except CheckpointError:
+        try:
+            rows=cmd(repo,'ls-remote','--refs','origin','refs/heads/main').splitlines()
+            if len(rows)==1 and rows[0].split()==[expected,'refs/heads/main']:
+                return
+        except CheckpointError:
+            pass
+        raise CheckpointError('git push outcome uncertain; stop and reconcile') from None
 
 def encrypted_git_checkpoint(repo,fernet,snapshot):
     root=Path(repo).resolve(); path=root/'private_queue'/'queue.enc'
@@ -25,6 +50,4 @@ def encrypted_git_checkpoint(repo,fernet,snapshot):
     write_encrypted(fernet,snapshot,path)
     cmd(root,'add','--','private_queue/queue.enc')
     cmd(root,'commit','-m','Checkpoint encrypted candidate delivery')
-    cmd(root,'push','origin','HEAD:main')
-    # A successful push is the durable checkpoint. If push reports failure, do
-    # not guess: the caller stops even if GitHub may have accepted it.
+    push_checkpoint(root)

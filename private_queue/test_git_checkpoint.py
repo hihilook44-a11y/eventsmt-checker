@@ -1,7 +1,8 @@
 import copy,os,subprocess,tempfile,unittest
 from pathlib import Path
+from unittest.mock import patch
 from cryptography.fernet import Fernet
-from git_checkpoint import encrypted_git_checkpoint,CheckpointError
+from git_checkpoint import encrypted_git_checkpoint,CheckpointError,push_checkpoint
 from secure_scan import load_snapshot
 
 def run(cwd,*args):return subprocess.run(['git',*args],cwd=cwd,check=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True).stdout.strip()
@@ -21,6 +22,33 @@ class GitCheckpointTest(unittest.TestCase):
   before=(self.repo/'private_queue'/'queue.enc').read_bytes()
   with self.assertRaises(CheckpointError):encrypted_git_checkpoint(self.repo,self.f,self.obj)
   self.assertEqual(before,(self.repo/'private_queue'/'queue.enc').read_bytes())
+ def test_push_timeout_but_remote_exact_commit_succeeds(self):
+  (self.repo/'new').write_text('pending');run(self.repo,'add','new');run(self.repo,'commit','-m','pending commit')
+  from git_checkpoint import cmd
+  calls=[]
+  def simulate(repo,*args):
+   calls.append(args)
+   if args[0]=='push':
+    cmd(repo,*args)
+    raise CheckpointError('timeout')
+   return cmd(repo,*args)
+  with patch('git_checkpoint.cmd',side_effect=simulate): push_checkpoint(self.repo)
+  self.assertEqual(sum(x[0]=='push' for x in calls),1)
+  self.assertEqual(sum(x[0]=='ls-remote' for x in calls),1)
+ def test_push_timeout_remote_mismatch_fails_closed(self):
+  (self.repo/'new').write_text('pending');run(self.repo,'add','new');run(self.repo,'commit','-m','not pushed')
+  from git_checkpoint import cmd
+  calls=[]
+  def simulate(repo,*args):
+   calls.append(args)
+   if args[0]=='push': raise CheckpointError('timeout')
+   return cmd(repo,*args)
+  with patch('git_checkpoint.cmd',side_effect=simulate):
+   with self.assertRaisesRegex(CheckpointError,'uncertain'):push_checkpoint(self.repo)
+  self.assertEqual(sum(x[0]=='push' for x in calls),1)
+ def test_push_timeout_remote_unavailable_fails_closed(self):
+  with patch('git_checkpoint.cmd',side_effect=['local-head',CheckpointError('timeout'),CheckpointError('unavailable')]):
+   with self.assertRaisesRegex(CheckpointError,'uncertain'):push_checkpoint(self.repo)
  def test_dirty_checkout_refuses(self):
   (self.repo/'private_queue'/'queue.enc').write_text('modified')
   with self.assertRaises(CheckpointError):encrypted_git_checkpoint(self.repo,self.f,self.obj)
