@@ -4,14 +4,25 @@
 Never steal or expire leases; abandoned leases require operator reconciliation.
 Owner identity is a unique Git commit, release uses git's compare-and-swap lease.
 """
-import argparse, os, subprocess, time, uuid
+import argparse, os, signal, subprocess, time, uuid
 from pathlib import Path
 REF='refs/heads/wabi-encrypted-queue-lock'
 
 def git(*args, check=True, env=None):
-    p=subprocess.run(['git',*args],capture_output=True,text=True,timeout=45,env=env)
-    if check and p.returncode: raise RuntimeError('git operation failed: '+args[0])
-    return p
+    argv=['git',*args]
+    proc=subprocess.Popen(argv,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,env=env,start_new_session=True)
+    try:
+        out,err=proc.communicate(timeout=90)
+        result=subprocess.CompletedProcess(argv,proc.returncode,out,err)
+    except subprocess.TimeoutExpired:
+        try: os.killpg(proc.pid,signal.SIGKILL)
+        except ProcessLookupError: pass
+        out,err=proc.communicate()
+        # Push with check=False is always reconciled by ls-remote by the caller.
+        # No new write is attempted until that read succeeds.
+        result=subprocess.CompletedProcess(argv,124,out,err)
+    if check and result.returncode: raise RuntimeError('git operation failed or timed out: '+args[0])
+    return result
 
 def acquire(token_path, wait_seconds=0):
     p=Path(token_path)
