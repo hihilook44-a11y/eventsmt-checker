@@ -41,6 +41,25 @@ class Tests(unittest.TestCase):
   self.assertEqual((saved,failed),(1,1));self.assertEqual(len(seen),1)
   self.assertNotIn('2:3',self.s.get('music_triage',{}));self.assertIn(self.key,self.s['music_triage'])
   self.assertNotIn('candidate_deliveries',self.s)
+ def test_oversized_prepared_candidate_stays_blocked_and_does_not_starve_others(self):
+  long_item={'post_id':'2','media_id':'3','video_url':'long'}
+  self.s['state']['pending']=[long_item,self.s['state']['pending'][0]]
+  self.s['prepared_media']['2:3']={'has_audio':True,'sha256':hashlib.sha256(self.data).hexdigest(),'duration_seconds':315.768163}
+  seen=[]
+  def fetch(url):
+   seen.append(url)
+   if url=='long':raise AssertionError('oversized media must not be fetched')
+   return self.data
+  saved,failed=triage_batch(self.s,lambda state:None,fetch,self.score)
+  self.assertEqual((saved,failed),(1,0));self.assertEqual(seen,['fake'])
+  self.assertNotIn('2:3',self.s.get('music_triage',{}));self.assertNotIn('candidate_deliveries',self.s)
+ def test_duration_limit_boundary_and_missing_metadata_still_probed(self):
+  self.s['prepared_media'][self.key]['duration_seconds']=240
+  self.assertIsNotNone(select(self.s))
+  self.s['prepared_media'][self.key]['duration_seconds']=240.001
+  self.assertIsNone(select(self.s))
+  self.s['prepared_media'][self.key]['duration_seconds']=None
+  self.assertIsNotNone(select(self.s))
  def test_save_failure_propagates(self):
   def save(_):raise RuntimeError('disk')
   with self.assertRaises(RuntimeError):triage_batch(self.s,save,self.fetch,self.score)

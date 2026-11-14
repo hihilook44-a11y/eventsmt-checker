@@ -29,6 +29,14 @@ def select(s, excluded=None):
         key=_key(item); prep=prepared.get(key,{})
         if key in excluded: continue
         if key.split(':')[0] in published or key in reviewed or prep.get('has_audio') is not True: continue
+        # Oversized originals cannot be fully assessed by this bounded workflow.
+        # Leave them unassessed and blocked rather than failing every cycle; a
+        # changed/reprepared duration can make them eligible on a later cycle.
+        try:
+            duration=float(prep.get('duration_seconds'))
+            if math.isfinite(duration) and duration>MAX_DURATION: continue
+        except (TypeError,ValueError):
+            pass  # Missing metadata must reach the normal fail-closed probe.
         old=prior.get(key,{})
         if old.get('sha256')==prep.get('sha256') and old.get('model_version')==MODEL_VERSION: continue
         return item
