@@ -7,8 +7,6 @@ on:
         description: 'Use the existing queue without scanning the source'
         type: boolean
         default: false
-  schedule:
-    - cron: '37 */2 * * *'
 permissions:
   contents: write
 concurrency:
@@ -62,6 +60,7 @@ jobs:
       - name: Verify synthetic pipeline and durable safeguards
         run: |
           python -m unittest discover -s private_queue -p 'test_candidate_recency.py' -v
+          python -m unittest discover -s private_queue -p 'test_automation_schedule.py' -v
           python -m unittest discover -s private_queue -p 'test_shorts_render.py' -v
           python -m unittest discover -s private_queue -p 'test_music_triage.py' -v
           python -m unittest discover -s private_queue -p 'test_automatic_audio.py' -v

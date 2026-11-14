@@ -24,9 +24,9 @@ def render_short(data):
         streams=info.get('streams',[])
         if not math.isfinite(duration) or duration<=0 or duration>180 or not any(x.get('codec_type')=='video' for x in streams):
             raise ValueError('source exceeds Shorts duration or lacks video')
-        # First stream is selected explicitly, just as its audio assessment probes.
-        vf='[0:v:0]split=2[bg][fg];[bg]scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280,boxblur=20:2[background];[fg]scale=720:1280:force_original_aspect_ratio=decrease[foreground];[background][foreground]overlay=(W-w)/2:(H-h)/2,setsar=1[v]'
-        subprocess.run(['ffmpeg','-nostdin','-hide_banner','-loglevel','error','-y','-i',str(src),'-filter_complex',vf,'-map','[v]','-map','0:a:0?','-map_metadata','-1','-c:v','libx264','-preset','veryfast','-crf','23','-pix_fmt','yuv420p','-c:a','copy','-movflags','+faststart',str(dst)],check=True,timeout=240,capture_output=True)
+        # Preserve the full scene and audio; high-quality scaling/encoding reduces avoidable artifacts.
+        vf='[0:v:0]split=2[bg][fg];[bg]scale=720:1280:force_original_aspect_ratio=increase:flags=lanczos,crop=720:1280,boxblur=20:2[background];[fg]scale=720:1280:force_original_aspect_ratio=decrease:flags=lanczos[foreground];[background][foreground]overlay=(W-w)/2:(H-h)/2,setsar=1[v]'
+        subprocess.run(['ffmpeg','-nostdin','-hide_banner','-loglevel','error','-y','-i',str(src),'-filter_complex',vf,'-map','[v]','-map','0:a:0?','-map_metadata','-1','-c:v','libx264','-preset','fast','-crf','18','-pix_fmt','yuv420p','-c:a','copy','-movflags','+faststart',str(dst)],check=True,timeout=240,capture_output=True)
         result=probe(dst); outduration=float(result.get('format',{}).get('duration',0)); outstreams=result.get('streams',[])
         video=next((s for s in outstreams if s.get('codec_type')=='video'),None)
         oldaudio=[s for s in streams if s.get('codec_type')=='audio']; newaudio=[s for s in outstreams if s.get('codec_type')=='audio']
