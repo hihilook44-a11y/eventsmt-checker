@@ -30,6 +30,22 @@ def decide(runs,receipt,now,interval):
     if times and (now-max(times)).total_seconds()<interval:return 'recent_run'
     return 'due'
 
+def queue_parent_covers(runs,jobs_by_id,now,interval):
+    """A recent hourly parent check already runs the reusable queue workflow."""
+    for run in runs:
+        if run.get('status') in ACTIVE:
+            return True
+        if (now-when(run['createdAt'])).total_seconds() >= interval:
+            continue
+        jobs=jobs_by_id.get(str(run.get('databaseId')),[])
+        for job in jobs:
+            if job.get('name','').startswith('backup-private-queue /') and (
+                job.get('status') in ACTIVE or
+                (job.get('status') == 'completed' and job.get('conclusion') == 'success')
+            ):
+                return True
+    return False
+
 def atomic(path,data):
     path.parent.mkdir(parents=True,exist_ok=True,mode=0o700)
     with tempfile.NamedTemporaryFile('w',dir=path.parent,delete=False) as f:
@@ -59,6 +75,18 @@ def main():
             r=call(['run','list','-R',REPO,'--workflow',workflow,'--limit','30','--json','databaseId,event,status,conclusion,createdAt,url'])
             if r.returncode:raise RuntimeError('run history unavailable; no dispatch')
             runs=json.loads(r.stdout);decision=decide(runs,state.get(workflow),now,interval)
+            if workflow=='private-queue.yml' and decision=='due':
+                parents_result=call(['run','list','-R',REPO,'--workflow','Source availability check','--limit','30','--json','databaseId,status,conclusion,createdAt,url'])
+                if parents_result.returncode:raise RuntimeError('source-check history unavailable; no queue dispatch')
+                parents=json.loads(parents_result.stdout);jobs_by_id={}
+                for parent in parents:
+                    age=(now-when(parent['createdAt'])).total_seconds()
+                    if parent.get('status') in ACTIVE or age >= interval:
+                        continue
+                    detail=call(['run','view',str(parent['databaseId']),'-R',REPO,'--json','jobs'])
+                    if detail.returncode:raise RuntimeError('source-check job state unavailable; no queue dispatch')
+                    jobs_by_id[str(parent['databaseId'])]=json.loads(detail.stdout).get('jobs',[])
+                if queue_parent_covers(parents,jobs_by_id,now,interval):decision='recent_source_check'
             item={'workflow':workflow,'decision':decision,'latest':runs[0] if runs else None}
             if decision=='due' and a.apply:
                 state[workflow]={'state':'attempting','attempted_at':now.isoformat()};atomic(a.state,state)

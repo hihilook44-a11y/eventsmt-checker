@@ -2,7 +2,7 @@ import sys,unittest
 from pathlib import Path
 from datetime import datetime,timezone,timedelta
 sys.path.insert(0,str(Path(__file__).resolve().parent))
-from automation_watchdog import decide
+from automation_watchdog import decide,queue_parent_covers
 class WatchdogTests(unittest.TestCase):
  def setUp(self):self.now=datetime(2026,11,11,16,30,tzinfo=timezone.utc)
  def run_at(self,delta,status='completed'):
@@ -22,4 +22,22 @@ class WatchdogTests(unittest.TestCase):
  def test_invalid_response_stops(self):
   for value in [{},[None],[{'createdAt':'broken'}]]:
    with self.assertRaises((ValueError,KeyError)):decide(value,None,self.now,7200)
+
+ def test_recent_parent_with_successful_reusable_queue_suppresses_dispatch(self):
+  parent={'databaseId':42,'createdAt':(self.now-timedelta(minutes=5)).isoformat(),'status':'completed'}
+  jobs={'42':[{'name':'backup-private-queue / scan','status':'completed','conclusion':'success'}]}
+  self.assertTrue(queue_parent_covers([parent],jobs,self.now,7200))
+ def test_active_parent_suppresses_duplicate_queue_dispatch_even_if_long_running(self):
+  parent={'databaseId':42,'createdAt':(self.now-timedelta(hours=3)).isoformat(),'status':'in_progress'}
+  self.assertTrue(queue_parent_covers([parent],{},self.now,7200))
+ def test_failed_or_missing_reusable_queue_does_not_suppress_recovery(self):
+  parent={'databaseId':42,'createdAt':(self.now-timedelta(minutes=5)).isoformat(),'status':'completed'}
+  jobs={'42':[{'name':'backup-private-queue / scan','status':'completed','conclusion':'failure'}]}
+  self.assertFalse(queue_parent_covers([parent],jobs,self.now,7200))
+  self.assertFalse(queue_parent_covers([parent],{},self.now,7200))
+ def test_old_parent_does_not_suppress_recovery(self):
+  parent={'databaseId':42,'createdAt':(self.now-timedelta(hours=3)).isoformat(),'status':'completed'}
+  jobs={'42':[{'name':'backup-private-queue / scan','status':'completed','conclusion':'success'}]}
+  self.assertFalse(queue_parent_covers([parent],jobs,self.now,7200))
+
 if __name__=='__main__':unittest.main()
