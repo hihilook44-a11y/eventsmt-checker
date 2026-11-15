@@ -10,7 +10,7 @@ import argparse,fcntl,json,os,subprocess,tempfile
 from datetime import datetime,timezone,timedelta
 from pathlib import Path
 REPO='hihilook44-a11y/eventsmt-checker'
-WORKFLOWS={'private-queue.yml':7200,'compilation-delivery.yml':86400}
+WORKFLOWS={'private-queue.yml':3600,'compilation-delivery.yml':86400}
 ACTIVE={'queued','in_progress','waiting','requested','pending'}
 
 def when(value):
