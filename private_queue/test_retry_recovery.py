@@ -60,6 +60,21 @@ class RecoveryGateTests(unittest.TestCase):
         self.assertEqual(s['candidate_deliveries'][KEY]['state'],'delivery_recorded')
         self.assertEqual(p.posts[0][-1],snapshot()['candidate_deliveries'][KEY]['idempotency_key'])
 
+    def test_retry_reuses_persisted_metadata(self):
+        s=snapshot(); p=Provider(); r=s['candidate_deliveries'][KEY]
+        r['scheduled_title']='saved title'; r['scheduled_description']='saved text #fivem #Mtfivem'
+        result,_=self.run_recovery(s,p)
+        self.assertTrue(result)
+        self.assertEqual(p.posts[0][1:3],('saved title','saved text #fivem #Mtfivem'))
+
+    def test_rejects_changed_persisted_metadata(self):
+        s=snapshot(); p=Provider(); r=s['candidate_deliveries'][KEY]
+        r.update(scheduled_title='saved title',scheduled_description='saved description')
+        pipeline=CandidatePipeline(s,lambda state:None,p)
+        with self.assertRaises(PipelineError):
+            pipeline.retry_scheduled_idempotently(KEY,ACCOUNT,'changed','saved description',r['scheduled_for'],r['idempotency_key'])
+        self.assertEqual(p.posts,[])
+
     def test_expired_attempt_unreviewed_bytes_or_wrong_destination_are_not_retried(self):
         s=snapshot();p=Provider();result,_=self.run_recovery(s,p,NOW+timedelta(hours=23))
         self.assertFalse(result);self.assertEqual(len(p.posts),0)

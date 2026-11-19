@@ -98,6 +98,12 @@ class Tests(unittest.TestCase):
  def test_source_text_not_invented_in_title(self):
   title,description,anchor=metadata([{'post_id':'123','text':'اختبار الحدث https://example.com @test'}])
   self.assertEqual(anchor,'اختبار الحدث');self.assertIn('/status/123',description);self.assertNotIn('@test',title)
+ def test_requested_hashtags_survive_long_source_list(self):
+  items=[{'post_id':str(i),'text':'حدث'} for i in range(500)]
+  _,description,_=metadata(items)
+  self.assertLessEqual(len(description),4900)
+  self.assertIn('#fivem #Mtfivem',description)
+  self.assertIn('/status/0',description)
  def test_real_synthetic_media_render(self):
   import subprocess
   with tempfile.TemporaryDirectory() as d:

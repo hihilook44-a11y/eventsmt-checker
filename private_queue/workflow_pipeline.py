@@ -248,7 +248,9 @@ def publish_reviewed(snapshot,checkpoint,provider,item,data,proof,verify,project
     text=re.sub(r'https?://\S+','',str(item.get('text') or ''))
     text=' '.join(text.split())
     title=(text[:80].strip() or 'أحداث MT')+' | أحداث MT'
-    description=(text+'\nالمصدر: https://x.com/__eventsMT/status/'+key.split(':')[0]).strip()
+    # Keep source attribution and requested hashtags within YouTube's description limit.
+    suffix='المصدر: https://x.com/__eventsMT/status/'+key.split(':')[0]+'\n#fivem #Mtfivem'
+    description=(text[:4900-len(suffix)-1].rstrip()+'\n'+suffix).strip()
     if hasattr(provider,'publish_scheduled'):
         delay=int(os.environ.get('ZERNIO_SCHEDULE_DELAY_MINUTES','15'))
         if not 5 <= delay <= 120: raise PipelineError('scheduled delay outside safe range')
@@ -314,6 +316,9 @@ def recover_uncertain_scheduled(snapshot,checkpoint,provider,verify,now=None):
         text=' '.join(text.split())
         title=(text[:80].strip() or 'أحداث MT')+' | أحداث MT'
         description=(text+'\nالمصدر: https://x.com/__eventsMT/status/'+key.split(':')[0]).strip()
+        # New attempts persist exact metadata; older uncertain attempts keep legacy text.
+        title=record.get('scheduled_title',title)
+        description=record.get('scheduled_description',description)
         pipeline=CandidatePipeline(snapshot,checkpoint,provider,verify)
         pipeline.retry_scheduled_idempotently(key,record['account'],title,description,record['scheduled_for'],record['idempotency_key'])
         return True

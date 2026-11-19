@@ -172,7 +172,8 @@ class CandidatePipeline:
             valid=any(m.get('id')==r['media_id'] and m.get('projectId')==r['project'] for m in result.get('media',[]))
         if not valid: raise PipelineError('uploaded media not verified')
         r.update(state='delivery_uncertain',account=account,scheduled_for=scheduled_for,
-                 idempotency_key=idempotency_key,provider=getattr(self.provider,'name','zernio'))
+                 idempotency_key=idempotency_key,provider=getattr(self.provider,'name','zernio'),
+                 scheduled_title=title,scheduled_description=description)
         self._checkpoint()
         post=self.provider.publish_scheduled(account,title,description,r['media_id'],scheduled_for,idempotency_key)
         if not isinstance(post,str) or not post: raise PipelineError('scheduled post outcome unknown')
@@ -197,6 +198,9 @@ class CandidatePipeline:
             r.get('scheduled_for')!=scheduled_for or r.get('idempotency_key')!=idempotency_key or
             not r.get('media_id') or not r.get('project') or not title):
             raise PipelineError('saved scheduled attempt does not match recovery')
+        if (('scheduled_title' in r and r['scheduled_title']!=title) or
+            ('scheduled_description' in r and r['scheduled_description']!=description)):
+            raise PipelineError('saved scheduled metadata differs from retry')
         post=self.provider.publish_scheduled(account,title,description,r['media_id'],scheduled_for,idempotency_key)
         if not isinstance(post,str) or not post:
             raise PipelineError('idempotent recovery outcome unknown')

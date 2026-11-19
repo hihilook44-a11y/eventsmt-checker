@@ -48,7 +48,7 @@ def metadata(items):
     # An extract of actual source descriptions, not invented event claims.
     anchor=(texts[0][:48].strip() if texts else 'أحداث MT')
     title=('تجميع أحداث MT | '+anchor)[:100]
-    description='تجميع من أحداث MT، بالصوت الأصلي دون إضافة موسيقى.\n\n'
+    description='تجميع من أحداث MT، بالصوت الأصلي دون إضافة موسيقى.\n#fivem #Mtfivem\n\n'
     description+='\n'.join('المصدر: https://x.com/__eventsMT/status/'+str(i['post_id']) for i in items)
     return title,description[:4900],anchor
 

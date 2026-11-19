@@ -38,6 +38,14 @@ class Tests(unittest.TestCase):
   self.assertEqual(self.saved['candidate_deliveries'][KEY]['state'],'delivery_uncertain')
   with self.assertRaises(PipelineError):self.run_delivery()
   self.assertEqual((self.p.uploads,self.p.posts),(1,1));self.assertEqual(reviewed_candidates(self.saved,self.v),[])
+ def test_new_short_has_requested_tags_and_source_even_with_long_text(self):
+  item=dict(ITEM,text='x'*6000)
+  captured=[]
+  self.p.publish_now=lambda account,title,description,media: captured.append(description) or 'post'
+  publish_reviewed(self.s,self.cp,self.p,item,DATA,self.proof,self.v,'project','account')
+  self.assertLessEqual(len(captured[0]),4900)
+  self.assertIn('https://x.com/__eventsMT/status/12',captured[0])
+  self.assertTrue(captured[0].endswith('#fivem #Mtfivem'))
  def test_changed_or_unreviewed_bytes_never_upload(self):
   with self.assertRaises(PipelineError):self.run_delivery(data=b'changed')
   bad=dict(self.proof,verdict='no_music_probability_high')
