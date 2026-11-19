@@ -104,6 +104,18 @@ def render(snapshot,plan,verify,output,thumb,fetch=get_media):
         thumbnail(frames,thumb,anchor)
         return {'title':title,'description':description,'duration_seconds':final_duration,'video_sha256':sha(Path(output).read_bytes()),'thumbnail_sha256':sha(Path(thumb).read_bytes())}
 
+def retry_cooldown_active(snapshot, now=None):
+    """Wait 24h after a failed attempt's scheduled time; uncertain stays blocked elsewhere."""
+    now=now or datetime.now(timezone.utc)
+    for record in snapshot.get('compilation_attempts',{}).values():
+        if record.get('state')!='failed_confirmed': continue
+        try:
+            when=datetime.fromisoformat(str(record['scheduled_for']).replace('Z','+00:00'))
+            if when.tzinfo is None: return True
+        except (KeyError,TypeError,ValueError): return True
+        if now < when.astimezone(timezone.utc)+timedelta(hours=24): return True
+    return False
+
 class Delivery:
     def __init__(self,snapshot,checkpoint,provider):
         self.s=snapshot;self.cp=checkpoint;self.p=provider;self.poisoned=False
@@ -135,6 +147,8 @@ class Delivery:
         ledger=self.s.setdefault('compilation_attempts',{})
         unresolved=[r for r in ledger.values() if r.get('state') not in {'published','failed_confirmed','abandoned_before_upload'}]
         if unresolved:raise ValueError('unresolved compilation attempt')
+        # A confirmed failed post can be retried, but respect a 24-hour cooldown.
+        if retry_cooldown_active(self.s):return 'retry_cooldown'
         # Enforce 24-hour cadence without inventing a recurring user time.
         now=datetime.now(timezone.utc)
         for r in ledger.values():
@@ -144,7 +158,14 @@ class Delivery:
         if any(r['key'].split(':')[0] in used_sources or r['sha256'] in used_hashes for r in plan):raise ValueError('source already compiled')
         if not self.p.verify_destination(self.p.profile,self.p.account):raise ValueError('destination unavailable')
         key=stable_idempotency_key(self.p.account,'compilation',details['video_sha256'])
-        if key in ledger:raise ValueError('attempt already exists')
+        if key in ledger:
+            # New idempotency key only after a definite failure; never overwrite history.
+            if ledger[key].get('state')!='failed_confirmed':raise ValueError('attempt already exists')
+            base=key; retry=1
+            while key in ledger:
+                if ledger[key].get('state')!='failed_confirmed':raise ValueError('attempt already exists')
+                key=stable_idempotency_key(self.p.account,'compilation-retry-'+str(retry),details['video_sha256'])
+                retry+=1
         record={'state':'upload_uncertain','source_keys':[r['key'] for r in plan],'source_sha256':[r['sha256'] for r in plan],**details,'project':self.p.profile,'account':self.p.account,'provider':'zernio','created_at':now.isoformat(),'idempotency_key':key}
         ledger[key]=record;self.save()
         url=self.p.upload(self.p.profile,video,filename='eventsmt-compilation.mp4')
@@ -168,6 +189,8 @@ def main():
     provider=ZernioProvider();cp=lambda s:encrypted_git_checkpoint(HERE.parent,f,s)
     delivery=Delivery(snapshot,cp,provider);delivery.reconcile()
     verify=verifier(os.environ.get('AUDIO_REVIEW_PUBLIC_KEY',''), MAX_DURATION)
+    if retry_cooldown_active(snapshot):
+        print('Compilation retry cooldown active.');return
     summary,rows=assess(snapshot,verify,return_plan=True)
     print(json.dumps(summary,sort_keys=True),flush=True)
     if not summary['eligible_for_preparation']:return

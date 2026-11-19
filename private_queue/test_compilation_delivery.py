@@ -1,8 +1,8 @@
 import copy, hashlib, tempfile, unittest
 from pathlib import Path
 from unittest.mock import patch
-from datetime import datetime, timezone
-from compilation_delivery import Delivery,choose_plan,metadata,render,sha,unused_rows
+from datetime import datetime, timezone, timedelta
+from compilation_delivery import Delivery,choose_plan,metadata,render,sha,unused_rows,retry_cooldown_active
 
 class Provider:
  profile='project';account='account'
@@ -30,6 +30,25 @@ class Tests(unittest.TestCase):
   self.submit();calls=self.p.calls[:]
   with self.assertRaisesRegex(ValueError,'unresolved'):self.submit()
   self.assertEqual(calls,self.p.calls)
+ def test_failed_attempt_waits_then_retries_with_new_key(self):
+  self.submit(); self.p.status='FAILED'; self.d.reconcile()
+  record=list(self.s['compilation_attempts'].values())[0]
+  self.assertEqual(record['state'],'failed_confirmed')
+  calls=self.p.calls[:]
+  self.assertEqual(self.submit(),'retry_cooldown'); self.assertEqual(calls,self.p.calls)
+  record['scheduled_for']=(datetime.now(timezone.utc)-timedelta(hours=25)).isoformat()
+  self.p.status='SCHEDULED'
+  self.assertEqual(self.submit(),'delivery_scheduled')
+  self.assertEqual(len(self.s['compilation_attempts']),2)
+ def test_failed_attempt_without_time_fails_closed(self):
+  self.s['compilation_attempts']={'old':{'state':'failed_confirmed'}}
+  self.assertTrue(retry_cooldown_active(self.s))
+  self.assertEqual(self.submit(),'retry_cooldown');self.assertFalse(self.p.calls)
+ def test_future_schedule_extends_retry_wait(self):
+  now=datetime.now(timezone.utc)
+  self.s['compilation_attempts']={'old':{'state':'failed_confirmed','scheduled_for':(now+timedelta(minutes=15)).isoformat()}}
+  self.assertTrue(retry_cooldown_active(self.s,now+timedelta(hours=24)))
+  self.assertFalse(retry_cooldown_active(self.s,now+timedelta(hours=25)))
  def test_upload_uncertainty_blocks_retry(self):
   self.p.upload=lambda *a,**k:(_ for _ in ()).throw(TimeoutError())
   with self.assertRaises(TimeoutError):self.submit()
