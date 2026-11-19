@@ -252,7 +252,7 @@ def publish_reviewed(snapshot,checkpoint,provider,item,data,proof,verify,project
     suffix='المصدر: https://x.com/__eventsMT/status/'+key.split(':')[0]+'\n#fivem #Mtfivem'
     description=(text[:4900-len(suffix)-1].rstrip()+'\n'+suffix).strip()
     if hasattr(provider,'publish_scheduled'):
-        delay=int(os.environ.get('ZERNIO_SCHEDULE_DELAY_MINUTES','15'))
+        delay=int(os.environ.get('ZERNIO_SCHEDULE_DELAY_MINUTES','5'))
         if not 5 <= delay <= 120: raise PipelineError('scheduled delay outside safe range')
         scheduled=(datetime.now(timezone.utc)+timedelta(minutes=delay)).replace(microsecond=0).isoformat().replace('+00:00','Z')
         idem=stable_idempotency_key(account,key,record['sha256'])

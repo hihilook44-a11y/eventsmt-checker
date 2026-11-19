@@ -83,7 +83,7 @@ jobs:
           ZERNIO_API_KEY: ${{ secrets.ZERNIO_API_KEY }}
           ZERNIO_PROFILE_ID: ${{ secrets.ZERNIO_PROFILE_ID }}
           ZERNIO_YOUTUBE_ACCOUNT_ID: ${{ secrets.ZERNIO_YOUTUBE_ACCOUNT_ID }}
-          ZERNIO_SCHEDULE_DELAY_MINUTES: '15'
+          ZERNIO_SCHEDULE_DELAY_MINUTES: '5'
           AUTOMATIC_AUDIO_RISK_ACCEPTED: 'true'
         run: python private_queue/workflow_pipeline.py
       - name: Prepare candidate for audio review
@@ -146,7 +146,7 @@ jobs:
           ZERNIO_API_KEY: ${{ secrets.ZERNIO_API_KEY }}
           ZERNIO_PROFILE_ID: ${{ secrets.ZERNIO_PROFILE_ID }}
           ZERNIO_YOUTUBE_ACCOUNT_ID: ${{ secrets.ZERNIO_YOUTUBE_ACCOUNT_ID }}
-          ZERNIO_SCHEDULE_DELAY_MINUTES: '15'
+          ZERNIO_SCHEDULE_DELAY_MINUTES: '5'
           AUTOMATIC_AUDIO_RISK_ACCEPTED: 'true'
         run: python private_queue/workflow_pipeline.py
       - name: Assess reviewed compilation readiness (no publication)
