@@ -13,7 +13,7 @@ sys.path.insert(0,str(ROOT));sys.path.insert(0,str(ROOT.parent))
 from secure_scan import read_key,load_snapshot
 from prepare_media import get_media
 from candidate_pipeline import CandidatePipeline,PipelineError,_key
-from git_checkpoint import encrypted_git_checkpoint
+from git_checkpoint import encrypted_git_checkpoint, CheckpointError
 from woopsocial_adapter import Provider
 from zernio_adapter import ZernioProvider, ZernioError, stable_idempotency_key
 from automatic_audio import verifier as review_verifier, proofs as audio_proofs
@@ -386,7 +386,19 @@ if __name__=='__main__':
             'scheduled post not confirmed', 'scheduled post outcome unknown',
             'earlier delivery is unresolved',
         }
-        if isinstance(exc,ZernioError):
+        safe_checkpoint_errors={
+            'main branch required', 'tracked checkout is not clean',
+            'remote changed; stop and reconcile',
+            'git push outcome uncertain; stop and reconcile',
+        }
+        # Git command names are fixed labels, never raw stderr or remote data.
+        safe_checkpoint_errors.update(
+            prefix + command for prefix in ('git checkpoint operation failed: ', 'git checkpoint operation timed out: ')
+            for command in ('branch', 'status', 'fetch', 'rev-parse', 'add', 'commit', 'push', 'ls-remote')
+        )
+        if isinstance(exc,CheckpointError) and str(exc) in safe_checkpoint_errors:
+            detail=str(exc)
+        elif isinstance(exc,ZernioError):
             detail=str(exc)
         elif isinstance(exc,PipelineError) and str(exc) in safe_pipeline_errors:
             detail=str(exc)
