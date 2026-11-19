@@ -122,6 +122,23 @@ class Tests(unittest.TestCase):
    self.assertGreaterEqual(details['duration_seconds'],3)
    from PIL import Image
    with Image.open(base/'thumb.jpg') as image:self.assertEqual(image.size,(1280,720))
+ def test_portrait_compilation_uses_background_and_preserves_full_scene(self):
+  import subprocess
+  from PIL import Image
+  with tempfile.TemporaryDirectory() as d:
+   base=Path(d);src=base/'portrait.mp4'
+   subprocess.run(['ffmpeg','-v','error','-f','lavfi','-i','color=c=red:s=180x320:r=10','-f','lavfi','-i','sine=frequency=440:sample_rate=48000','-t','3.2','-c:v','libx264','-threads','2','-c:a','aac',str(src)],check=True)
+   data=src.read_bytes();digest=sha(data)
+   from compilation_assessment import probe_bytes
+   dur=probe_bytes(data)
+   s={'state':{'pending':[]},'compilation_sources':{'1:1':{'post_id':'1','media_id':'1','video_url':'fake','text':'تجربة'}},'prepared_media':{'1:1':{'sha256':digest}},'audio_reviews':{'1:1':{'synthetic':True}}}
+   with patch('compilation_delivery.MIN',3):
+    details=render(s,[{'key':'1:1','sha256':digest,'duration_seconds':dur}],lambda *a:True,base/'out.mp4',base/'thumb.jpg',fetch=lambda _:data)
+   frame=base/'frame.png'
+   subprocess.run(['ffmpeg','-v','error','-i',str(base/'out.mp4'),'-frames:v','1',str(frame)],check=True)
+   with Image.open(frame) as im:
+    self.assertEqual(im.size,(1280,720));self.assertGreater(im.getpixel((100,360))[0],50);self.assertGreater(im.getpixel((640,360))[0],100)
+   self.assertGreaterEqual(details['duration_seconds'],3)
  def test_changed_source_cannot_render(self):
   s={'state':{'pending':[{'post_id':'1','media_id':'1','video_url':'url'}]},'prepared_media':{},'audio_reviews':{}}
   with tempfile.TemporaryDirectory() as d,self.assertRaisesRegex(ValueError,'source changed'):

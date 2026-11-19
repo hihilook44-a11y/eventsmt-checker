@@ -88,7 +88,9 @@ def render(snapshot,plan,verify,output,thumb,fetch=get_media):
             if abs(duration-row['duration_seconds'])>.1: raise ValueError('duration changed')
             src=base/f'{n}.mp4';src.write_bytes(data);os.chmod(src,0o600)
             dest=base/f'{n}-normalized.mp4'
-            run(['ffmpeg','-nostdin','-v','error','-i',str(src),'-map','0:v:0','-map','0:a:0','-vf','scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=25','-c:v','libx264','-threads','2','-preset','veryfast','-crf','23','-c:a','aac','-ar','48000','-ac','2',str(dest)])
+            # Preserve the full source frame while replacing empty bars with a subtle blurred background.
+            vf='[0:v:0]split=2[bg][fg];[bg]scale=1280:720:force_original_aspect_ratio=increase:flags=lanczos,crop=1280:720,boxblur=20:2,eq=brightness=-0.15:saturation=0.75[background];[fg]scale=1280:720:force_original_aspect_ratio=decrease:flags=lanczos[foreground];[background][foreground]overlay=(W-w)/2:(H-h)/2,setsar=1,fps=25[v]'
+            run(['ffmpeg','-nostdin','-v','error','-i',str(src),'-filter_complex',vf,'-map','[v]','-map','0:a:0','-c:v','libx264','-threads','2','-preset','veryfast','-crf','23','-c:a','aac','-ar','48000','-ac','2',str(dest)])
             parts.append(dest);items.append(item)
             if len(frames)<2:
                 image=base/f'frame-{n}.jpg'
