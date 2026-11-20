@@ -25,7 +25,10 @@ def summarize(s):
         if p.get('has_audio') is False: out['fresh_silent']+=1; continue
         if p.get('has_audio') is not True: out['fresh_audio_unknown']+=1; continue
         out['fresh_audio']+=1
-        if k in approved: out['fresh_audio_approved']+=1; continue
+        if k in approved:
+            out['fresh_audio_approved']+=1
+            out['approved_delivery_'+(state if state in {'awaiting_audio_review','published','delivery_failed','delivery_scheduled','delivery_uncertain','upload_complete'} else 'other_or_none')]+=1
+            continue
         if k in reviews: out['fresh_audio_review_present_unusable']+=1; continue
         try:
             dur=float(p.get('duration_seconds'))
