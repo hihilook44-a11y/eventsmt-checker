@@ -1,0 +1,21 @@
+name: Read-only audio queue diagnostics
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  diagnose:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install 'cryptography==45.0.7'
+      - name: Count fresh candidate states without identities
+        env:
+          PRIVATE_QUEUE_FERNET_KEY: ${{ secrets.PRIVATE_QUEUE_FERNET_KEY }}
+        run: python private_queue/diagnose_audio_queue.py
