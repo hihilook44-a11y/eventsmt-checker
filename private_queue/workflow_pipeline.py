@@ -17,6 +17,7 @@ from git_checkpoint import encrypted_git_checkpoint, CheckpointError
 from woopsocial_adapter import Provider
 from zernio_adapter import ZernioProvider, ZernioError, stable_idempotency_key
 from automatic_audio import verifier as review_verifier, proofs as audio_proofs
+from music_triage import MODEL_VERSION
 from shorts_render import render_short, SHORTS_FORMAT
 from candidate_recency import newest_first, recent_short
 
@@ -38,13 +39,22 @@ def select_candidate(s):
         key=_key(item)
         if recent_short(item) and key in prepared and key.split(':')[0] not in published and key not in deliveries:
             available.append((key,item))
-    # Register candidates already eligible for the audio gate first; registration
-    # itself cannot upload, and publication still checks exact bytes and destination.
+    # Register exact-proof and silent candidates first. A matching model result
+    # that is suspected or inconclusive must stay blocked; registering it every
+    # cycle only grows the waiting queue and does not produce a new assessment.
+    # Unassessed/changed items can still be registered for a later assessment.
     proofs=audio_proofs(s)
     for key,item in available:
         if key in proofs or prepared[key].get('has_audio') is False:
             return key,item
-    return available[0] if available else (None,None)
+    for key,item in available:
+        assessment=s.get('music_triage',{}).get(key,{})
+        if (assessment.get('sha256')==prepared[key].get('sha256')
+                and assessment.get('model_version')==MODEL_VERSION
+                and assessment.get('classification') in ('music_suspected','inconclusive')):
+            continue
+        return key,item
+    return None,None
 
 
 def register_and_deliver(snapshot, checkpoint, provider, item, data, verify,

@@ -41,6 +41,25 @@ class WorkflowTest(unittest.TestCase):
         with patch.dict('os.environ',{'AUTOMATIC_AUDIO_RISK_ACCEPTED':'false'}): self.assertEqual(select_candidate(snapshot)[0],'10:10')
         snapshot['ledger']['published_source_ids']=['20']
         with patch.dict('os.environ',{'AUTOMATIC_AUDIO_RISK_ACCEPTED':'true'}): self.assertEqual(select_candidate(snapshot)[0],'10:10')
+    def test_suspected_and_inconclusive_do_not_accumulate_waiting_records(self):
+        from unittest.mock import patch
+        from music_triage import MODEL_VERSION
+        now=datetime.now(timezone.utc).isoformat()
+        items=[{'post_id':str(i),'media_id':str(i),'created_at':now} for i in (1,2,3)]
+        digest='a'*64
+        snapshot={'state':{'pending':items},'ledger':{'published_source_ids':[]},
+                  'prepared_media':{f'{i}:{i}':{'sha256':digest,'has_audio':True} for i in (1,2,3)},
+                  'music_triage':{f'{i}:{i}':{'sha256':digest,'model_version':MODEL_VERSION,'classification':cls} for i,cls in ((1,'music_suspected'),(2,'inconclusive'))}}
+        with patch.dict('os.environ',{'AUTOMATIC_AUDIO_RISK_ACCEPTED':'true'}):
+            self.assertEqual(select_candidate(snapshot)[0],'3:3')
+            snapshot['candidate_deliveries']={'3:3':{'state':'awaiting_audio_review'}}
+            self.assertEqual(select_candidate(snapshot),(None,None))
+            snapshot['music_triage']['1:1']['sha256']='b'*64
+            self.assertEqual(select_candidate(snapshot)[0],'1:1')
+            snapshot['music_triage']['1:1']['sha256']=digest
+            snapshot['audio_reviews']={'1:1':{'signed':'test'}}
+            self.assertEqual(select_candidate(snapshot)[0],'1:1')
+
     def test_full_synthetic_draft_and_remote_checkpoints(self):
         p=FakeProvider();x=load_snapshot(self.f,self.repo/'private_queue'/'queue.enc')
         status=run_candidate(x,self.cp,p,self.key,self.data,'synthetic-project','synthetic-account','test','',True,lambda i,d,p:p is True)
