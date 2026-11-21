@@ -13,6 +13,18 @@ from woopsocial_adapter import Queue
 from candidate_recency import newest_first
 
 MAX_BYTES=100_000_000
+
+class MediaTooLarge(ValueError):
+    """Media exceeded the download safety limit, not an audio clearance."""
+
+def hold_matches(snapshot, item):
+    key=str(item.get('post_id',''))+':'+str(item.get('media_id',''))
+    hold=snapshot.get('preparation_holds',{}).get(key,{})
+    url=item.get('video_url')
+    if not isinstance(hold,dict) or not isinstance(url,str): return False
+    digest=hashlib.sha256(url.encode('utf-8')).hexdigest()
+    return hold.get('reason')=='media_too_large' and hold.get('url_sha256')==digest and hold.get('max_bytes')==MAX_BYTES
+
 class SafeRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         check_url(newurl)
@@ -28,7 +40,7 @@ def eligible(snapshot):
     already=snapshot.get('prepared_media',{})
     for item in newest_first(snapshot['state']['pending']):
         source=str(item.get('post_id','')); media=str(item.get('media_id',''))
-        if source.isdigit() and media.isdigit() and source not in ledger and source+':'+media not in already:
+        if source.isdigit() and media.isdigit() and source not in ledger and source+':'+media not in already and not hold_matches(snapshot,item):
             return item
     return None
 
@@ -49,13 +61,25 @@ def get_media(url,opener=None):
     finally:
         signal.alarm(0)
         signal.signal(signal.SIGALRM,old_handler)
-    if not data or len(data)>MAX_BYTES: raise ValueError('invalid media size')
+    if not data: raise ValueError('invalid media size')
+    if len(data)>MAX_BYTES: raise MediaTooLarge('media exceeds size limit')
     return data
 
 def prepare(snapshot,fetch=get_media,probe=None):
     item=eligible(snapshot)
     if item is None: return False
-    data=fetch(item['video_url'])
+    try:
+        data=fetch(item['video_url'])
+    except MediaTooLarge:
+        # Preserve this one source as held, never prepared or audio-cleared. The
+        # next iteration can try another source; changed URLs or limits retry.
+        url=item['video_url']
+        key=str(item['post_id'])+':'+str(item['media_id'])
+        snapshot.setdefault('preparation_holds',{})[key]={
+            'reason':'media_too_large',
+            'url_sha256':hashlib.sha256(url.encode('utf-8')).hexdigest(),
+            'max_bytes':MAX_BYTES}
+        return True
     with tempfile.TemporaryDirectory(prefix='private-media-') as d:
         os.chmod(d,0o700)
         media=Path(d)/'source.mp4';media.write_bytes(data);os.chmod(media,0o600)
@@ -75,7 +99,11 @@ def prepare(snapshot,fetch=get_media,probe=None):
 
 def main():
     f=read_key(); snapshot=load_snapshot(f)
-    if prepare(snapshot): write_encrypted(f,snapshot);print('One candidate prepared for audio review; no upload or publication.')
+    prior_holds=dict(snapshot.get('preparation_holds',{}))
+    if prepare(snapshot):
+        write_encrypted(f,snapshot)
+        if snapshot.get('preparation_holds',{})!=prior_holds: print('Oversized candidate held; no upload or audio clearance.')
+        else: print('One candidate prepared for audio review; no upload or publication.')
     else: print('No unprepared candidate in queue; no upload or publication.')
 if __name__=='__main__':
     try: main()

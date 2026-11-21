@@ -59,6 +59,7 @@ jobs:
         run: bash scripts/ensure-ffmpeg.sh
       - name: Verify synthetic pipeline and durable safeguards
         run: |
+          python -m unittest discover -s private_queue -p 'test_prepare_media.py' -v
           python -m unittest discover -s private_queue -p 'test_candidate_recency.py' -v
           python -m unittest discover -s private_queue -p 'test_automation_schedule.py' -v
           python -m unittest discover -s private_queue -p 'test_shorts_render.py' -v
@@ -90,12 +91,16 @@ jobs:
         env:
           PRIVATE_QUEUE_FERNET_KEY: ${{ secrets.PRIVATE_QUEUE_FERNET_KEY }}
         run: |
-          for item in $(seq 1 12); do python private_queue/prepare_media.py; done
+          prep_status=0
+          for item in $(seq 1 12); do
+            python private_queue/prepare_media.py || { prep_status=$?; break; }
+          done
           git add private_queue/queue.enc
           if ! git diff --cached --quiet; then
             git commit -m 'Checkpoint encrypted audio-review preparation'
             git push origin HEAD:main
           fi
+          exit "$prep_status"
       - name: Cache pinned audio classifier models (no media)
         continue-on-error: true
         uses: actions/cache@v4
