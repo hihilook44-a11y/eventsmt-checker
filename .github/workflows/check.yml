@@ -2,7 +2,7 @@ name: Source availability check
 on:
   workflow_dispatch:
   schedule:
-    - cron: '43 * * * *'
+    - cron: '41 * * * *'
 permissions:
   contents: write
 concurrency:
