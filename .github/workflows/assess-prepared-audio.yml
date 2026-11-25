@@ -38,7 +38,6 @@ jobs:
         # A low classifier score is never a song-free verdict. Fail closed;
         # never change signed reviews, delivery records or the original audio.
         timeout-minutes: 4
-        continue-on-error: true
         env:
           PRIVATE_QUEUE_FERNET_KEY: ${{ secrets.PRIVATE_QUEUE_FERNET_KEY }}
           MUSIC_MODEL_DIR: ${{ runner.temp }}/music-models
