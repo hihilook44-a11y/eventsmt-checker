@@ -1,0 +1,19 @@
+name: Source availability read-only probe
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: false
+      - name: Test source availability without saving or publishing
+        env:
+          SOURCE_HANDLE: ${{ secrets.SOURCE_HANDLE }}
+          STATE_PATH: ${{ runner.temp }}/source-probe-state.json
+        run: python3 check.py
