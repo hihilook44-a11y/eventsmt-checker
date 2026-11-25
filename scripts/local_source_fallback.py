@@ -31,7 +31,7 @@ def main():
                 print(json.dumps({'fallback':'active_run_skip'}));return
             with tempfile.TemporaryDirectory(prefix='eventsmt-fallback-') as td:
                 clone=Path(td)/'repo'
-                x=run(['git','clone','--quiet','--no-hardlinks',str(repo),str(clone)])
+                x=run(['git','clone','--quiet','--shared',str(repo),str(clone)])
                 if x.returncode:raise RuntimeError('isolated clone failed')
                 x=run(['git','remote','get-url','origin'],cwd=repo)
                 if x.returncode:raise RuntimeError('remote unavailable')
