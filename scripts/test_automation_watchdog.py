@@ -15,8 +15,11 @@ class WatchdogTests(unittest.TestCase):
   for age,expected in [(100,'awaiting_dispatch_readback'),(8000,'unresolved_dispatch')]:
    receipt={'state':'unknown','attempted_at':(self.now-timedelta(seconds=age)).isoformat()}
    self.assertEqual(decide([],receipt,self.now,7200),expected)
- def test_remote_run_resolves_local_receipt(self):
-  receipt={'state':'unknown','attempted_at':(self.now-timedelta(seconds=100)).isoformat()}
+ def test_unknown_receipt_is_not_resolved_by_later_independent_run(self):
+  receipt={'state':'unknown','attempted_at':(self.now-timedelta(seconds=8000)).isoformat()}
+  self.assertEqual(decide([self.run_at(95)],receipt,self.now,7200),'unresolved_dispatch')
+ def test_accepted_receipt_with_run_is_recent(self):
+  receipt={'state':'accepted','attempted_at':(self.now-timedelta(seconds=100)).isoformat()}
   self.assertEqual(decide([self.run_at(95)],receipt,self.now,7200),'recent_run')
  def test_future_does_not_trigger(self):self.assertEqual(decide([self.run_at(-30)],None,self.now,7200),'recent_run')
  def test_invalid_response_stops(self):

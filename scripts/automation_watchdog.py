@@ -24,6 +24,10 @@ def decide(runs,receipt,now,interval):
     times=[when(r['createdAt']) for r in runs]
     if receipt and receipt.get('state') in {'attempting','accepted','unknown'}:
         attempted=when(receipt['attempted_at'])
+        # A later run may be an independent manual or scheduled run, not this
+        # uncertain request. Never infer its acceptance from timestamp alone.
+        if receipt['state'] in {'attempting','unknown'}:
+            return 'awaiting_dispatch_readback' if (now-attempted).total_seconds()<interval else 'unresolved_dispatch'
         if any(t>=attempted-timedelta(seconds=3) for t in times):pass
         elif (now-attempted).total_seconds()<interval:return 'awaiting_dispatch_readback'
         else:return 'unresolved_dispatch'
