@@ -18,4 +18,7 @@ jobs:
       - name: Count fresh candidate states without identities
         env:
           PRIVATE_QUEUE_FERNET_KEY: ${{ secrets.PRIVATE_QUEUE_FERNET_KEY }}
-        run: python private_queue/diagnose_audio_queue.py
+        run: |
+          python private_queue/diagnose_audio_queue.py
+          PYTHONPATH=private_queue python -c 'import json; from secure_scan import read_key,load_snapshot; from workflow_pipeline import reconciliation_summary,delivery_in_flight; s=load_snapshot(read_key()); print("delivery_summary",json.dumps(reconciliation_summary(s),sort_keys=True),"in_flight",delivery_in_flight(s))'
+
