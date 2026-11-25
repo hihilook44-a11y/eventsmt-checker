@@ -8,8 +8,8 @@ concurrency:
   cancel-in-progress: false
 jobs:
   prepare:
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
         with:
@@ -24,7 +24,7 @@ jobs:
           python-version: '3.12'
       - run: python -m pip install 'cryptography==45.0.7'
       - name: Ensure video inspection is available
-        run: command -v ffprobe >/dev/null || (sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg)
+        run: bash scripts/ensure-ffmpeg.sh
       - name: Prepare one queued video without publishing
         env:
           PRIVATE_QUEUE_FERNET_KEY: ${{ secrets.PRIVATE_QUEUE_FERNET_KEY }}
