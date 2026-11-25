@@ -145,8 +145,8 @@ class CheckTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             state = Path(d) / 'state.json'
             scan('__eventsMT', NOW, lambda h,c: page([post(1, NOW-30)]), state)
-            def loader(handle, cursor, endpoint):
-                calls.append((endpoint,cursor))
+            def loader(handle, cursor, endpoint, count):
+                calls.append((endpoint,cursor,count))
                 if endpoint == 'statuses':
                     raise urllib.error.HTTPError('https://example.invalid', 404, 'not found', {}, None)
                 return page([post(1, NOW-30)])
@@ -156,7 +156,26 @@ class CheckTests(unittest.TestCase):
                 original_scan = check.scan
                 with patch('check.scan', side_effect=lambda h,t,loader: original_scan(h,t,loader,state)):
                     self.assertEqual(check.main(), 0)
-            self.assertEqual(calls, [('statuses',None),('media',None)])
+            self.assertEqual(calls, [('statuses',None,100),('media',None,100)])
+            self.assertEqual(json.loads(state.read_text())['last_successful_scan'], NOW+20)
+
+    def test_main_restarts_first_page_with_smaller_size_after_large_failures(self):
+        import check
+        calls = []
+        with tempfile.TemporaryDirectory() as d:
+            state = Path(d) / 'state.json'
+            scan('__eventsMT', NOW, lambda h,c: page([post(1, NOW-30)]), state)
+            original_scan = check.scan
+            def loader(handle, cursor, endpoint, count):
+                calls.append((endpoint, cursor, count))
+                if count == 100:
+                    raise urllib.error.HTTPError('https://example.invalid', 404, 'not found', {}, None)
+                return page([post(1, NOW-30)])
+            with patch('check.fetch_page', side_effect=loader), \
+                 patch('check.scan', side_effect=lambda h,t,loader: original_scan(h,t,loader,state)), \
+                 patch('check.time.time', return_value=NOW+20), patch('check.os.environ', {}):
+                self.assertEqual(check.main(), 0)
+            self.assertEqual(calls, [('statuses',None,100), ('media',None,100), ('statuses',None,50)])
             self.assertEqual(json.loads(state.read_text())['last_successful_scan'], NOW+20)
 
     def test_main_failure_preserves_state(self):

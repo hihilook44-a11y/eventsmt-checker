@@ -20,11 +20,13 @@ MAX_LEDGER_IDS = 5000
 STATE_PATH = Path(os.environ.get('STATE_PATH', 'state/seen_post_ids.json'))
 
 
-def fetch_page(handle, cursor=None, endpoint="media"):
+def fetch_page(handle, cursor=None, endpoint="media", count=50):
     if endpoint not in ("media", "statuses"):
         raise ValueError("invalid discovery endpoint")
     url = 'https://api.fxtwitter.com/2/profile/' + urllib.parse.quote(handle, safe='') + '/' + endpoint
-    params = {'count': 50}
+    if count not in (50, 100):
+        raise ValueError('invalid page size')
+    params = {'count': count}
     if cursor:
         params['cursor'] = cursor
     request = urllib.request.Request(url + '?' + urllib.parse.urlencode(params), headers={
@@ -178,13 +180,15 @@ def main():
     # Each failed scan leaves the saved watermark untouched.
     failures = []
     started_at = int(time.time())
-    for endpoint in ('statuses', 'media'):
+    # Restart the entire bounded scan for each size/endpoint. Never reuse
+    # cursors across page sizes or advance the watermark on failed attempts.
+    for endpoint, count in (('statuses', 100), ('media', 100), ('statuses', 50), ('media', 50)):
         try:
             result = scan(handle, started_at,
-                          lambda h, c: fetch_page(h, c, endpoint))
+                          lambda h, c: fetch_page(h, c, endpoint, count))
         except Exception as exc:
             category = f'HTTP {exc.code}' if isinstance(exc, urllib.error.HTTPError) else type(exc).__name__
-            failures.append(f'{endpoint}: {category}')
+            failures.append(f'{endpoint} count={count}: {category}')
             continue
         print(json.dumps(result))
         return 0
