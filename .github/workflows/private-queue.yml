@@ -62,6 +62,7 @@ jobs:
           python -m unittest discover -s private_queue -p 'test_prepare_media.py' -v
           python -m unittest discover -s private_queue -p 'test_candidate_recency.py' -v
           python -m unittest discover -s private_queue -p 'test_automation_schedule.py' -v
+          python -m unittest discover -s private_queue -p 'test_short_cadence.py' -v
           python -m unittest discover -s private_queue -p 'test_shorts_render.py' -v
           python -m unittest discover -s private_queue -p 'test_music_triage.py' -v
           python -m unittest discover -s private_queue -p 'test_automatic_audio.py' -v

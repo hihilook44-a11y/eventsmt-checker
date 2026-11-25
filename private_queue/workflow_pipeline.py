@@ -192,6 +192,37 @@ def delivery_in_flight(snapshot):
                for r in snapshot.get('candidate_deliveries',{}).values())
 
 
+def short_cadence_wait(snapshot, now=None):
+    """Conservatively space scheduled Shorts across calls and queue runs.
+
+    Serialized queue writers persist scheduled_for before the provider request.
+    Wait a full hour after the latest nonfailed scheduled time before submitting
+    another Short. A malformed known timestamp fails closed. Legacy posts without
+    a scheduled_for timestamp cannot establish when they went public.
+    """
+    now = now or datetime.now(timezone.utc)
+    if now.tzinfo is None:
+        raise PipelineError('cadence clock must be timezone-aware')
+    now = now.astimezone(timezone.utc)
+    for record in snapshot.get('candidate_deliveries', {}).values():
+        if not isinstance(record, dict):
+            raise PipelineError('invalid cadence delivery record')
+        if record.get('state') not in {'delivery_uncertain','delivery_recorded','delivery_scheduled','published'}:
+            continue
+        raw = record.get('scheduled_for')
+        if raw is None:
+            continue  # Legacy immediate-publish records have no reliable time.
+        try:
+            when = datetime.fromisoformat(str(raw).replace('Z', '+00:00'))
+            if when.tzinfo is None:
+                raise ValueError('missing timezone')
+        except (TypeError, ValueError):
+            raise PipelineError('invalid cadence timestamp') from None
+        if now < when.astimezone(timezone.utc) + timedelta(hours=1):
+            return True
+    return False
+
+
 def reviewed_candidates(snapshot,verify):
     """Select signed-review candidates or metadata-marked audio-free candidates.
 
@@ -243,6 +274,8 @@ def zernio_scheduling_enabled(env=None):
 def publish_reviewed(snapshot,checkpoint,provider,item,data,proof,verify,project,account,shorts_renderer=None):
     if getattr(provider,'name','')=='zernio' and not zernio_scheduling_enabled():
         raise PipelineError('Zernio scheduled publishing is disabled')
+    if short_cadence_wait(snapshot):
+        return 'cadence_wait'
     key=_key(item)
     if verify is None or not verify(item,data,proof): raise PipelineError('signed complete audio review required')
     if not exact_destination(provider,project,account): raise PipelineError('configured destination unavailable')
@@ -361,6 +394,9 @@ def main():
     reconcile_known_deliveries(s,cp,provider,providers)
     if delivery_in_flight(s):
         print('Earlier delivery is unresolved; further publication paused.')
+        return
+    if short_cadence_wait(s):
+        print('Waiting for the next hourly Short window.')
         return
     verify=review_verifier(os.environ.get('AUDIO_REVIEW_PUBLIC_KEY',''))
     if getattr(provider,'name','')=='zernio':
