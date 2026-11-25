@@ -12,6 +12,8 @@ jobs:
         with:
           ref: main
           persist-credentials: false
+      - name: Copy production watermark for an isolated read-only test
+        run: cp state/seen_post_ids.json "$RUNNER_TEMP/source-probe-state.json"
       - name: Test source availability without saving or publishing
         env:
           SOURCE_HANDLE: ${{ secrets.SOURCE_HANDLE }}
