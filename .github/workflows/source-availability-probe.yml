@@ -12,6 +12,10 @@ jobs:
         with:
           ref: main
           persist-credentials: false
+      - name: Check hourly scheduling and watchdog safeguards without publishing
+        run: |
+          python3 -m unittest discover -s private_queue -p 'test_automation_schedule.py' -v
+          python3 -m unittest discover -s scripts -p 'test_automation_watchdog.py' -v
       - name: Copy production watermark for an isolated read-only test
         run: cp state/seen_post_ids.json "$RUNNER_TEMP/source-probe-state.json"
       - name: Test source availability without saving or publishing
