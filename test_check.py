@@ -57,6 +57,29 @@ class CheckTests(unittest.TestCase):
         self.assertEqual(open_url.call_count, 2)
         error.close()
 
+    def test_repeated_404_then_success_uses_bounded_backoff(self):
+        from unittest.mock import call
+        error = urllib.error.HTTPError('https://example.invalid', 404, 'not found', {}, None)
+        response = io.BytesIO(b'{"code":200,"results":[],"cursor":{}}')
+        response.__enter__ = lambda: response
+        response.__exit__ = lambda *args: False
+        with patch('check.urllib.request.urlopen', side_effect=[error, error, response]) as open_url, \
+             patch('check.time.sleep') as sleep:
+            self.assertEqual(fetch_page('__eventsMT')['code'], 200)
+        self.assertEqual(open_url.call_count, 3)
+        self.assertEqual(sleep.call_args_list, [call(1), call(3)])
+        error.close()
+
+    def test_persistent_404_stops_after_bounded_retries(self):
+        error = urllib.error.HTTPError('https://example.invalid', 404, 'not found', {}, None)
+        with patch('check.urllib.request.urlopen', side_effect=error) as open_url, \
+             patch('check.time.sleep') as sleep:
+            with self.assertRaises(urllib.error.HTTPError):
+                fetch_page('__eventsMT')
+        self.assertEqual(open_url.call_count, 4)
+        self.assertEqual(sleep.call_count, 3)
+        error.close()
+
     def test_incomplete_history_does_not_advance_watermark(self):
         with tempfile.TemporaryDirectory() as d:
             state = Path(d) / 'state.json'

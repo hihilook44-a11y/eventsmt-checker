@@ -32,21 +32,22 @@ def fetch_page(handle, cursor=None, endpoint="media", count=50):
     request = urllib.request.Request(url + '?' + urllib.parse.urlencode(params), headers={
         'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json'
     })
-    # The public proxy occasionally fails transiently. Retry one time on transport,
-    # server, transient 404, or truncated-JSON errors; never advance state on failure.
-    for attempt in range(2):
+    # Intermittent 404s also occur for a working timeline. Retry each page
+    # with bounded backoff; failed scans still leave the watermark untouched.
+    delays = (1, 3, 7)
+    for attempt in range(len(delays) + 1):
         try:
             with urllib.request.urlopen(request, timeout=25) as response:
                 return json.load(response)
         except urllib.error.HTTPError as exc:
-            if attempt == 0 and (exc.code == 404 or 500 <= exc.code < 600):
-                time.sleep(1)
+            if attempt < len(delays) and (exc.code == 404 or 500 <= exc.code < 600):
+                time.sleep(delays[attempt])
                 continue
             raise
         except (urllib.error.URLError, TimeoutError, ConnectionError,
                 json.JSONDecodeError):
-            if attempt == 0:
-                time.sleep(1)
+            if attempt < len(delays):
+                time.sleep(delays[attempt])
                 continue
             raise
 
